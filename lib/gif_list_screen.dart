@@ -6,6 +6,7 @@ import 'gif_box.dart';
 import 'tenor_scraper.dart';
 import 'models/gif_entry.dart';
 import 'package:flutter/foundation.dart';
+import 'cache/my_cache_manager.dart'; // Import your custom cache manager
 
 class GifListScreen extends StatefulWidget {
   const GifListScreen({super.key});
@@ -16,9 +17,7 @@ class GifListScreen extends StatefulWidget {
 
 class _GifListScreenState extends State<GifListScreen> {
   final TextEditingController _urlController = TextEditingController();
-
-  // Re-add the desktop breakpoint
-  static const double kDesktopBreakpoint = 600.0; // Adjust as needed
+  static const double kDesktopBreakpoint = 600.0;
 
   final _gifBox = Hive.box<GifEntry>(gifBoxName);
   bool _isProcessingUrl = false;
@@ -151,7 +150,6 @@ class _GifListScreenState extends State<GifListScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Get screen width and check for desktop mode
     final screenWidth = MediaQuery.of(context).size.width;
     final isDesktop = screenWidth > kDesktopBreakpoint;
 
@@ -193,11 +191,8 @@ class _GifListScreenState extends State<GifListScreen> {
               ],
             ),
             const SizedBox(height: 16.0),
-            // --- The list area ---
             Expanded(
-              // Expanded takes up the remaining vertical space
               child: ValueListenableBuilder<Box<GifEntry>>(
-                // ValueListenableBuilder for Hive changes
                 valueListenable: _gifBox.listenable(),
                 builder: (context, box, _) {
                   if (box.isEmpty) {
@@ -205,7 +200,6 @@ class _GifListScreenState extends State<GifListScreen> {
                       child: Text('No favorite GIFs yet. Add URLs!'),
                     );
                   }
-                  // ListView.builder to display the list items
                   return ListView.builder(
                     itemCount: box.length,
                     itemBuilder: (context, index) {
@@ -219,9 +213,7 @@ class _GifListScreenState extends State<GifListScreen> {
 
                       // The Card widget for each list item
                       Widget gifCard = Card(
-                        // Margin for spacing between cards
-                        margin: const EdgeInsets.symmetric(
-                            vertical: 4.0), // Keep vertical margin
+                        margin: const EdgeInsets.symmetric(vertical: 4.0),
                         clipBehavior: Clip.antiAlias,
                         child: GestureDetector(
                           onTap: () => _copyOriginalUrl(gifEntry.originalUrl),
@@ -230,9 +222,11 @@ class _GifListScreenState extends State<GifListScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
-                                // GIF Preview - maintains aspect ratio
+                                // GIF Preview - Pass the custom cache manager here
                                 CachedNetworkImage(
                                   imageUrl: gifEntry.mediaUrl,
+                                  cacheManager:
+                                      MyCacheManager(), // Use your custom cache manager
                                   placeholder: (context, url) => Container(
                                     height: 150,
                                     color: Colors.grey[300],
@@ -246,13 +240,11 @@ class _GifListScreenState extends State<GifListScreen> {
                                     child: const Icon(Icons.error,
                                         color: Colors.red),
                                   ),
-                                  // Allow image to fill available width up to its intrinsic size or parent constraint
                                   width: double.infinity,
                                   fit: BoxFit.contain,
                                 ),
                                 const SizedBox(height: 8.0),
 
-                                // URLs and Delete Button
                                 Row(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
@@ -297,26 +289,18 @@ class _GifListScreenState extends State<GifListScreen> {
                         ),
                       );
 
-                      // Conditionally wrap the card for centering and max width on desktop
                       if (isDesktop) {
                         return Center(
-                          // Center the card horizontally
                           child: ConstrainedBox(
-                            // Limit the max width of the card
                             constraints: const BoxConstraints(
-                              maxWidth:
-                                  700.0, // Adjust max width for the card as needed
+                              maxWidth: 700.0, // Adjust max width for the card
                             ),
-                            child:
-                                gifCard, // Place the Card inside the constraint
+                            child: gifCard,
                           ),
                         );
                       } else {
-                        // On phone, return the card with horizontal padding
                         return Padding(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal:
-                                  8.0), // Add padding to the card on phone
+                          padding: const EdgeInsets.symmetric(horizontal: 8.0),
                           child: gifCard,
                         );
                       }
