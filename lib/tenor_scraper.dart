@@ -1,6 +1,5 @@
 import 'package:http/http.dart' as http;
 import 'package:html/parser.dart' show parse;
-import 'package:html/dom.dart';
 
 class TenorScraper {
   /// Attempts to scrape a Tenor page URL to find a direct GIF or video URL.

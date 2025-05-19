@@ -5,7 +5,6 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'gif_box.dart';
 import 'tenor_scraper.dart';
 import 'models/gif_entry.dart';
-import 'package:flutter/foundation.dart';
 import 'cache/my_cache_manager.dart';
 import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
