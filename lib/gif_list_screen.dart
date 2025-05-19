@@ -207,41 +207,92 @@ class _GifListScreenState extends State<GifListScreen> {
                         return const SizedBox.shrink();
                       }
 
-                      // Clean the URL for display in the title text
+                      // Clean the URL for display and copying
                       final displayedOriginalUrl =
                           _cleanDiscordUrlForDisplay(gifEntry.originalUrl);
 
-                      return GestureDetector(
-                        // Pass the originalUrl to the copy function
-                        onTap: () => _copyOriginalUrl(gifEntry.originalUrl),
-                        child: Card(
-                          margin: const EdgeInsets.symmetric(vertical: 4.0),
-                          child: ListTile(
-                            contentPadding: const EdgeInsets.all(8.0),
-                            leading: SizedBox(
-                              width: 100,
-                              child: CachedNetworkImage(
-                                imageUrl: gifEntry
-                                    .mediaUrl, // Use mediaUrl for preview
-                                placeholder: (context, url) => const Center(
-                                    child: CircularProgressIndicator()),
-                                errorWidget: (context, url, error) =>
-                                    const Icon(Icons.error),
-                                fit: BoxFit.cover,
-                              ),
-                            ),
-                            // Display the cleaned URL in the title
-                            title: Text(displayedOriginalUrl,
-                                overflow: TextOverflow.ellipsis),
-                            // Optionally show the media URL if different from original
-                            subtitle: gifEntry.originalUrl != gifEntry.mediaUrl
-                                ? Text('Media: ${gifEntry.mediaUrl}',
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(fontSize: 10))
-                                : null,
-                            trailing: IconButton(
-                              icon: const Icon(Icons.delete, color: Colors.red),
-                              onPressed: () => _removeGif(index),
+                      return Card(
+                        margin: const EdgeInsets.symmetric(
+                            vertical: 4.0, horizontal: 8.0),
+                        clipBehavior: Clip.antiAlias,
+                        child: GestureDetector(
+                          onTap: () => _copyOriginalUrl(gifEntry.originalUrl),
+                          child: Padding(
+                            padding: const EdgeInsets.all(8.0),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                // GIF Preview - Constrained by a maximum width
+                                Container(
+                                  // Add Container here
+                                  constraints: const BoxConstraints(
+                                    // Set maximum width
+                                    maxWidth:
+                                        500.0, // Example max width (adjust as needed)
+                                  ),
+                                  alignment: Alignment
+                                      .center, // Center the image within the container if it's smaller than maxWidth
+                                  child: CachedNetworkImage(
+                                    imageUrl: gifEntry.mediaUrl,
+                                    placeholder: (context, url) => Container(
+                                      height: 150,
+                                      color: Colors.grey[300],
+                                      child: const Center(
+                                          child: CircularProgressIndicator()),
+                                    ),
+                                    errorWidget: (context, url, error) =>
+                                        Container(
+                                      height: 150,
+                                      color: Colors.red[100],
+                                      child: const Icon(Icons.error,
+                                          color: Colors.red),
+                                    ),
+                                    // width: double.infinity, // No longer needed due to Container constraints
+                                    fit: BoxFit.contain,
+                                  ),
+                                ),
+                                const SizedBox(height: 8.0),
+
+                                // URLs and Delete Button
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            displayedOriginalUrl,
+                                            overflow: TextOverflow.ellipsis,
+                                            maxLines: 2,
+                                            style: const TextStyle(
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.bold),
+                                          ),
+                                          if (gifEntry.originalUrl !=
+                                              gifEntry.mediaUrl)
+                                            Text(
+                                              'Media: ${gifEntry.mediaUrl}',
+                                              overflow: TextOverflow.ellipsis,
+                                              maxLines: 2,
+                                              style: TextStyle(
+                                                  fontSize: 10,
+                                                  color: Colors.grey[600]),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(Icons.delete,
+                                          color: Colors.red),
+                                      onPressed: () => _removeGif(index),
+                                      padding: EdgeInsets.zero,
+                                      visualDensity: VisualDensity.compact,
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ),
                           ),
                         ),
