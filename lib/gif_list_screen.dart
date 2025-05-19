@@ -5,6 +5,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'gif_box.dart';
 import 'tenor_scraper.dart';
 import 'models/gif_entry.dart';
+import 'package:flutter/foundation.dart';
 
 class GifListScreen extends StatefulWidget {
   const GifListScreen({super.key});
@@ -15,12 +16,17 @@ class GifListScreen extends StatefulWidget {
 
 class _GifListScreenState extends State<GifListScreen> {
   final TextEditingController _urlController = TextEditingController();
+
+  // Re-add the desktop breakpoint
+  static const double kDesktopBreakpoint = 600.0; // Adjust as needed
+
   final _gifBox = Hive.box<GifEntry>(gifBoxName);
   bool _isProcessingUrl = false;
 
   Future<void> _handleUrlInput() async {
     final originalUrl = _urlController.text.trim();
     if (originalUrl.isEmpty) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Please enter a URL'),
@@ -32,9 +38,9 @@ class _GifListScreenState extends State<GifListScreen> {
 
     if (_isProcessingUrl) return;
 
-    // Validate if it's a valid URL format before processing
     Uri? uri = Uri.tryParse(originalUrl);
     if (uri?.hasAbsolutePath != true) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Please enter a valid URL format'),
@@ -48,22 +54,22 @@ class _GifListScreenState extends State<GifListScreen> {
       _isProcessingUrl = true;
     });
 
-    String mediaUrl = originalUrl; // Start with originalUrl for media
+    String mediaUrl = originalUrl;
 
-    // --- Handle Tenor URLs ---
     if (originalUrl.contains('tenor.com')) {
-      // Attempt to scrape the original Tenor page to get the media URL.
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Attempting to scrape Tenor URL...'),
           duration: Duration(seconds: 2),
         ),
       );
-      final scrapedUrl = await TenorScraper.scrapeGifUrl(
-          originalUrl); // Use originalUrl for scraping
+      final scrapedUrl = await TenorScraper.scrapeGifUrl(originalUrl);
+
+      if (!mounted) return;
 
       if (scrapedUrl != null) {
-        mediaUrl = scrapedUrl; // Use scraped URL for preview/caching
+        mediaUrl = scrapedUrl;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Scraping successful! Adding GIF.'),
@@ -71,7 +77,6 @@ class _GifListScreenState extends State<GifListScreen> {
           ),
         );
       } else {
-        // If scraping failed, we can't get a media URL for preview/caching
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Failed to scrape GIF from Tenor URL. Cannot add.'),
@@ -81,21 +86,18 @@ class _GifListScreenState extends State<GifListScreen> {
         setState(() {
           _isProcessingUrl = false;
         });
-        return; // Exit if scraping failed
+        return;
       }
     } else {
-      // For non-Tenor URLs (including Discord), mediaUrl is the originalUrl (with query string)
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Adding URL.'),
           duration: Duration(seconds: 1),
         ),
       );
-      // mediaUrl is already set to originalUrl at the beginning
     }
 
-    // --- Add the GifEntry object to Hive ---
-    // Save the original URL as entered (with query string)
     final gifEntry = GifEntry(originalUrl: originalUrl, mediaUrl: mediaUrl);
     _gifBox.add(gifEntry);
     _urlController.clear();
@@ -107,6 +109,7 @@ class _GifListScreenState extends State<GifListScreen> {
 
   void _removeGif(int index) {
     _gifBox.deleteAt(index);
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('GIF removed.'),
@@ -114,21 +117,18 @@ class _GifListScreenState extends State<GifListScreen> {
     );
   }
 
-  // Function to copy the original URL to clipboard, cleaned for Discord
   void _copyOriginalUrl(String originalUrl) {
-    // Clean the URL before copying if it's a Discord URL
     final urlToCopy = _cleanDiscordUrlForDisplay(originalUrl);
     Clipboard.setData(ClipboardData(text: urlToCopy));
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(
-            'Copied URL: $urlToCopy'), // Show the copied URL in the snackbar
+        content: Text('Copied URL: $urlToCopy'),
         duration: const Duration(seconds: 2),
       ),
     );
   }
 
-  // Helper function to clean Discord URLs for display and copying
   String _cleanDiscordUrlForDisplay(String url) {
     if (url.contains('cdn.discordapp.com') ||
         url.contains('media.discordapp.net')) {
@@ -136,12 +136,11 @@ class _GifListScreenState extends State<GifListScreen> {
         final uri = Uri.parse(url);
         return uri.replace(query: '').toString();
       } catch (e) {
-        // If parsing fails for some reason, return the original URL
-        print('Error cleaning Discord URL for display/copy: $e');
+        debugPrint('Error cleaning Discord URL for display/copy: $e');
         return url;
       }
     }
-    return url; // Return original URL if not a Discord link
+    return url;
   }
 
   @override
@@ -152,6 +151,10 @@ class _GifListScreenState extends State<GifListScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Get screen width and check for desktop mode
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isDesktop = screenWidth > kDesktopBreakpoint;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Favorite GIFs'),
@@ -190,15 +193,19 @@ class _GifListScreenState extends State<GifListScreen> {
               ],
             ),
             const SizedBox(height: 16.0),
+            // --- The list area ---
             Expanded(
-              child: ValueListenableBuilder(
+              // Expanded takes up the remaining vertical space
+              child: ValueListenableBuilder<Box<GifEntry>>(
+                // ValueListenableBuilder for Hive changes
                 valueListenable: _gifBox.listenable(),
-                builder: (context, Box<GifEntry> box, _) {
+                builder: (context, box, _) {
                   if (box.isEmpty) {
                     return const Center(
                       child: Text('No favorite GIFs yet. Add URLs!'),
                     );
                   }
+                  // ListView.builder to display the list items
                   return ListView.builder(
                     itemCount: box.length,
                     itemBuilder: (context, index) {
@@ -207,13 +214,14 @@ class _GifListScreenState extends State<GifListScreen> {
                         return const SizedBox.shrink();
                       }
 
-                      // Clean the URL for display and copying
                       final displayedOriginalUrl =
                           _cleanDiscordUrlForDisplay(gifEntry.originalUrl);
 
-                      return Card(
+                      // The Card widget for each list item
+                      Widget gifCard = Card(
+                        // Margin for spacing between cards
                         margin: const EdgeInsets.symmetric(
-                            vertical: 4.0, horizontal: 8.0),
+                            vertical: 4.0), // Keep vertical margin
                         clipBehavior: Clip.antiAlias,
                         child: GestureDetector(
                           onTap: () => _copyOriginalUrl(gifEntry.originalUrl),
@@ -222,34 +230,25 @@ class _GifListScreenState extends State<GifListScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
-                                // GIF Preview - Constrained by a maximum width
-                                Container(
-                                  // Add Container here
-                                  constraints: const BoxConstraints(
-                                    // Set maximum width
-                                    maxWidth:
-                                        500.0, // Example max width (adjust as needed)
+                                // GIF Preview - maintains aspect ratio
+                                CachedNetworkImage(
+                                  imageUrl: gifEntry.mediaUrl,
+                                  placeholder: (context, url) => Container(
+                                    height: 150,
+                                    color: Colors.grey[300],
+                                    child: const Center(
+                                        child: CircularProgressIndicator()),
                                   ),
-                                  alignment: Alignment
-                                      .center, // Center the image within the container if it's smaller than maxWidth
-                                  child: CachedNetworkImage(
-                                    imageUrl: gifEntry.mediaUrl,
-                                    placeholder: (context, url) => Container(
-                                      height: 150,
-                                      color: Colors.grey[300],
-                                      child: const Center(
-                                          child: CircularProgressIndicator()),
-                                    ),
-                                    errorWidget: (context, url, error) =>
-                                        Container(
-                                      height: 150,
-                                      color: Colors.red[100],
-                                      child: const Icon(Icons.error,
-                                          color: Colors.red),
-                                    ),
-                                    // width: double.infinity, // No longer needed due to Container constraints
-                                    fit: BoxFit.contain,
+                                  errorWidget: (context, url, error) =>
+                                      Container(
+                                    height: 150,
+                                    color: Colors.red[100],
+                                    child: const Icon(Icons.error,
+                                        color: Colors.red),
                                   ),
+                                  // Allow image to fill available width up to its intrinsic size or parent constraint
+                                  width: double.infinity,
+                                  fit: BoxFit.contain,
                                 ),
                                 const SizedBox(height: 8.0),
 
@@ -297,6 +296,30 @@ class _GifListScreenState extends State<GifListScreen> {
                           ),
                         ),
                       );
+
+                      // Conditionally wrap the card for centering and max width on desktop
+                      if (isDesktop) {
+                        return Center(
+                          // Center the card horizontally
+                          child: ConstrainedBox(
+                            // Limit the max width of the card
+                            constraints: const BoxConstraints(
+                              maxWidth:
+                                  700.0, // Adjust max width for the card as needed
+                            ),
+                            child:
+                                gifCard, // Place the Card inside the constraint
+                          ),
+                        );
+                      } else {
+                        // On phone, return the card with horizontal padding
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal:
+                                  8.0), // Add padding to the card on phone
+                          child: gifCard,
+                        );
+                      }
                     },
                   );
                 },
