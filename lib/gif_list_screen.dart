@@ -6,10 +6,10 @@ import 'gif_box.dart';
 import 'tenor_scraper.dart';
 import 'models/gif_entry.dart';
 import 'package:flutter/foundation.dart';
-import 'cache/my_cache_manager.dart'; // Import your custom cache manager
-import 'dart:convert'; // Import for JSON encoding/decoding
-import 'package:file_picker/file_picker.dart'; // Import file_picker
-import 'dart:io'; // Import for File operations
+import 'cache/my_cache_manager.dart';
+import 'dart:convert';
+import 'package:file_picker/file_picker.dart';
+import 'dart:io';
 
 class GifListScreen extends StatefulWidget {
   const GifListScreen({super.key});
@@ -146,10 +146,8 @@ class _GifListScreenState extends State<GifListScreen> {
     return url;
   }
 
-  // --- Export Favorites Logic ---
   Future<void> _exportFavorites() async {
     try {
-      // Get all favorite GIFs from Hive
       final allFavorites = _gifBox.values.toList();
 
       if (allFavorites.isEmpty) {
@@ -163,23 +161,18 @@ class _GifListScreenState extends State<GifListScreen> {
         return;
       }
 
-      // Convert the list of GifEntry objects to a list of maps
       final List<Map<String, dynamic>> jsonList =
           allFavorites.map((gifEntry) => gifEntry.toJson()).toList();
-
-      // Encode the list of maps to a JSON string
       final String jsonString = jsonEncode(jsonList);
 
-      // Use file_picker to show a save file dialog
       String? outputFile = await FilePicker.platform.saveFile(
         dialogTitle: 'Export Favorite GIFs',
-        fileName: 'favorite_gifs_export.json', // Suggested filename
-        allowedExtensions: ['json'], // Allow saving as JSON files
-        type: FileType.custom, // Specify custom file type
+        fileName: 'favorite_gifs_export.json',
+        allowedExtensions: ['json'],
+        type: FileType.custom,
       );
 
       if (outputFile != null) {
-        // User selected a save location, write the JSON string to the file
         final File file = File(outputFile);
         await file.writeAsString(jsonString);
 
@@ -191,7 +184,6 @@ class _GifListScreenState extends State<GifListScreen> {
           ),
         );
       } else {
-        // User canceled the save dialog
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -211,19 +203,16 @@ class _GifListScreenState extends State<GifListScreen> {
     }
   }
 
-  // --- Import Favorites Logic ---
   Future<void> _importFavorites() async {
     try {
-      // Use file_picker to show a pick file dialog
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         dialogTitle: 'Import Favorite GIFs',
-        allowedExtensions: ['json'], // Allow picking only JSON files
-        type: FileType.custom, // Specify custom file type
-        allowMultiple: false, // Allow picking only a single file
+        allowedExtensions: ['json'],
+        type: FileType.custom,
+        allowMultiple: false,
       );
 
       if (result != null) {
-        // User selected a file
         final PlatformFile selectedFile = result.files.single;
 
         if (selectedFile.path == null) {
@@ -238,26 +227,21 @@ class _GifListScreenState extends State<GifListScreen> {
         }
 
         final File file = File(selectedFile.path!);
-
-        // Read the content of the selected file
         final String jsonString = await file.readAsString();
 
-        // Decode the JSON string into a list of dynamic objects (maps)
         final List<dynamic> decodedJson = jsonDecode(jsonString);
 
-        // Convert the list of maps back to GifEntry objects
         final List<GifEntry> importedFavorites = decodedJson
             .map((jsonItem) {
-              // Add error handling for individual item conversion if needed
               try {
                 return GifEntry.fromJson(jsonItem as Map<String, dynamic>);
               } catch (e) {
                 debugPrint('Error decoding JSON item: $jsonItem - $e');
-                return null; // Skip invalid items
+                return null;
               }
             })
             .whereType<GifEntry>()
-            .toList(); // Filter out any null entries from failed conversions
+            .toList();
 
         if (importedFavorites.isEmpty) {
           if (!mounted) return;
@@ -270,12 +254,9 @@ class _GifListScreenState extends State<GifListScreen> {
           return;
         }
 
-        // --- Merge Strategy (Avoid Duplicates) ---
-        // Get existing original URLs to check for duplicates
         final existingUrls =
             _gifBox.values.map((entry) => entry.originalUrl).toSet();
         final newFavoritesToAdd = importedFavorites.where((importedEntry) {
-          // Add only if the originalUrl does not already exist
           return !existingUrls.contains(importedEntry.originalUrl);
         }).toList();
 
@@ -291,7 +272,6 @@ class _GifListScreenState extends State<GifListScreen> {
           return;
         }
 
-        // Add the new favorites to the Hive box
         _gifBox.addAll(newFavoritesToAdd);
 
         if (!mounted) return;
@@ -303,7 +283,6 @@ class _GifListScreenState extends State<GifListScreen> {
           ),
         );
       } else {
-        // User canceled the pick file dialog
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -337,6 +316,28 @@ class _GifListScreenState extends State<GifListScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Favorite GIFs'),
+        // Add actions to the AppBar for the overflow menu
+        actions: [
+          PopupMenuButton<String>(
+            onSelected: (String result) {
+              if (result == 'export') {
+                _exportFavorites();
+              } else if (result == 'import') {
+                _importFavorites();
+              }
+            },
+            itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+              const PopupMenuItem<String>(
+                value: 'export',
+                child: Text('Export Favorites'),
+              ),
+              const PopupMenuItem<String>(
+                value: 'import',
+                child: Text('Import Favorites'),
+              ),
+            ],
+          ),
+        ],
       ),
       body: Padding(
         padding: const EdgeInsets.all(8.0),
@@ -371,23 +372,9 @@ class _GifListScreenState extends State<GifListScreen> {
                 ),
               ],
             ),
-            const SizedBox(height: 16.0),
-            // --- Import/Export Buttons ---
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center, // Center the buttons
-              children: [
-                ElevatedButton(
-                  onPressed: _exportFavorites,
-                  child: const Text('Export Favorites'),
-                ),
-                const SizedBox(width: 16.0), // Space between buttons
-                ElevatedButton(
-                  onPressed: _importFavorites,
-                  child: const Text('Import Favorites'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16.0), // Space between buttons and list
+            // Removed the Row containing the import/export buttons from here
+            const SizedBox(height: 16.0), // Keep spacing
+
             Expanded(
               child: ValueListenableBuilder<Box<GifEntry>>(
                 valueListenable: _gifBox.listenable(),
