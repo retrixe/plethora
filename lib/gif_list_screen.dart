@@ -112,11 +112,9 @@ class _GifListScreenState extends State<GifListScreen> {
   void _removeGif(int index) {
     _gifBox.deleteAt(index);
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('GIF removed.'),
-      ),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('GIF removed.')));
   }
 
   void _copyOriginalUrl(String originalUrl) {
@@ -184,11 +182,9 @@ class _GifListScreenState extends State<GifListScreen> {
         );
       } else {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Export canceled.'),
-          ),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Export canceled.')));
       }
     } catch (e) {
       debugPrint('Error exporting favorites: $e');
@@ -230,17 +226,18 @@ class _GifListScreenState extends State<GifListScreen> {
 
         final List<dynamic> decodedJson = jsonDecode(jsonString);
 
-        final List<GifEntry> importedFavorites = decodedJson
-            .map((jsonItem) {
-              try {
-                return GifEntry.fromJson(jsonItem as Map<String, dynamic>);
-              } catch (e) {
-                debugPrint('Error decoding JSON item: $jsonItem - $e');
-                return null;
-              }
-            })
-            .whereType<GifEntry>()
-            .toList();
+        final List<GifEntry> importedFavorites =
+            decodedJson
+                .map((jsonItem) {
+                  try {
+                    return GifEntry.fromJson(jsonItem as Map<String, dynamic>);
+                  } catch (e) {
+                    debugPrint('Error decoding JSON item: $jsonItem - $e');
+                    return null;
+                  }
+                })
+                .whereType<GifEntry>()
+                .toList();
 
         if (importedFavorites.isEmpty) {
           if (!mounted) return;
@@ -255,16 +252,18 @@ class _GifListScreenState extends State<GifListScreen> {
 
         final existingUrls =
             _gifBox.values.map((entry) => entry.originalUrl).toSet();
-        final newFavoritesToAdd = importedFavorites.where((importedEntry) {
-          return !existingUrls.contains(importedEntry.originalUrl);
-        }).toList();
+        final newFavoritesToAdd =
+            importedFavorites.where((importedEntry) {
+              return !existingUrls.contains(importedEntry.originalUrl);
+            }).toList();
 
         if (newFavoritesToAdd.isEmpty) {
           if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text(
-                  'No new favorites to add (duplicates found or no valid entries).'),
+                'No new favorites to add (duplicates found or no valid entries).',
+              ),
               backgroundColor: Colors.orangeAccent,
             ),
           );
@@ -277,17 +276,16 @@ class _GifListScreenState extends State<GifListScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-                'Successfully imported ${newFavoritesToAdd.length} favorite(s)!'),
+              'Successfully imported ${newFavoritesToAdd.length} favorite(s)!',
+            ),
             backgroundColor: Colors.green,
           ),
         );
       } else {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Import canceled.'),
-          ),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Import canceled.')));
       }
     } catch (e) {
       debugPrint('Error importing favorites: $e');
@@ -325,16 +323,17 @@ class _GifListScreenState extends State<GifListScreen> {
                 _importFavorites();
               }
             },
-            itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
-              const PopupMenuItem<String>(
-                value: 'export',
-                child: Text('Export Favorites'),
-              ),
-              const PopupMenuItem<String>(
-                value: 'import',
-                child: Text('Import Favorites'),
-              ),
-            ],
+            itemBuilder:
+                (BuildContext context) => <PopupMenuEntry<String>>[
+                  const PopupMenuItem<String>(
+                    value: 'export',
+                    child: Text('Export Favorites'),
+                  ),
+                  const PopupMenuItem<String>(
+                    value: 'import',
+                    child: Text('Import Favorites'),
+                  ),
+                ],
           ),
         ],
       ),
@@ -350,15 +349,18 @@ class _GifListScreenState extends State<GifListScreen> {
                     decoration: InputDecoration(
                       hintText: 'Enter URL (GIF, Tenor, Discord)',
                       border: const OutlineInputBorder(),
-                      contentPadding:
-                          const EdgeInsets.symmetric(horizontal: 10.0),
-                      suffixIcon: _isProcessingUrl
-                          ? const Padding(
-                              padding: EdgeInsets.all(8.0),
-                              child:
-                                  CircularProgressIndicator(strokeWidth: 2.0),
-                            )
-                          : null,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 10.0,
+                      ),
+                      suffixIcon:
+                          _isProcessingUrl
+                              ? const Padding(
+                                padding: EdgeInsets.all(8.0),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2.0,
+                                ),
+                              )
+                              : null,
                     ),
                     keyboardType: TextInputType.url,
                     onSubmitted: (_) => _handleUrlInput(),
@@ -391,8 +393,9 @@ class _GifListScreenState extends State<GifListScreen> {
                         return const SizedBox.shrink();
                       }
 
-                      final displayedOriginalUrl =
-                          _cleanDiscordUrlForDisplay(gifEntry.originalUrl);
+                      final displayedOriginalUrl = _cleanDiscordUrlForDisplay(
+                        gifEntry.originalUrl,
+                      );
 
                       Widget gifCard = Card(
                         margin: const EdgeInsets.symmetric(vertical: 4.0),
@@ -407,19 +410,23 @@ class _GifListScreenState extends State<GifListScreen> {
                                 CachedNetworkImage(
                                   imageUrl: gifEntry.mediaUrl,
                                   cacheManager: MyCacheManager(),
-                                  placeholder: (context, url) => Container(
-                                    height: 150,
-                                    color: Colors.grey[300],
-                                    child: const Center(
-                                        child: CircularProgressIndicator()),
-                                  ),
-                                  errorWidget: (context, url, error) =>
-                                      Container(
-                                    height: 150,
-                                    color: Colors.red[100],
-                                    child: const Icon(Icons.error,
-                                        color: Colors.red),
-                                  ),
+                                  placeholder:
+                                      (context, url) => Container(
+                                        height: 150,
+                                        color: Colors.grey[300],
+                                        child: const Center(
+                                          child: CircularProgressIndicator(),
+                                        ),
+                                      ),
+                                  errorWidget:
+                                      (context, url, error) => Container(
+                                        height: 150,
+                                        color: Colors.red[100],
+                                        child: const Icon(
+                                          Icons.error,
+                                          color: Colors.red,
+                                        ),
+                                      ),
                                   width: double.infinity,
                                   fit: BoxFit.contain,
                                 ),
@@ -437,8 +444,9 @@ class _GifListScreenState extends State<GifListScreen> {
                                             overflow: TextOverflow.ellipsis,
                                             maxLines: 2,
                                             style: const TextStyle(
-                                                fontSize: 14,
-                                                fontWeight: FontWeight.bold),
+                                              fontSize: 14,
+                                              fontWeight: FontWeight.bold,
+                                            ),
                                           ),
                                           if (gifEntry.originalUrl !=
                                               gifEntry.mediaUrl)
@@ -447,15 +455,18 @@ class _GifListScreenState extends State<GifListScreen> {
                                               overflow: TextOverflow.ellipsis,
                                               maxLines: 2,
                                               style: TextStyle(
-                                                  fontSize: 10,
-                                                  color: Colors.grey[600]),
+                                                fontSize: 10,
+                                                color: Colors.grey[600],
+                                              ),
                                             ),
                                         ],
                                       ),
                                     ),
                                     IconButton(
-                                      icon: const Icon(Icons.delete,
-                                          color: Colors.red),
+                                      icon: const Icon(
+                                        Icons.delete,
+                                        color: Colors.red,
+                                      ),
                                       onPressed: () => _removeGif(index),
                                       padding: EdgeInsets.zero,
                                       visualDensity: VisualDensity.compact,
@@ -471,9 +482,7 @@ class _GifListScreenState extends State<GifListScreen> {
                       if (isDesktop) {
                         return Center(
                           child: ConstrainedBox(
-                            constraints: const BoxConstraints(
-                              maxWidth: 700.0,
-                            ),
+                            constraints: const BoxConstraints(maxWidth: 700.0),
                             child: gifCard,
                           ),
                         );

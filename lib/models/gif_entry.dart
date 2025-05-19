@@ -14,10 +14,7 @@ class GifEntry extends HiveObject {
 
   // Convert GifEntry object to a Map (for JSON encoding)
   Map<String, dynamic> toJson() {
-    return {
-      'originalUrl': originalUrl,
-      'mediaUrl': mediaUrl,
-    };
+    return {'originalUrl': originalUrl, 'mediaUrl': mediaUrl};
   }
 
   // Create a GifEntry object from a Map (for JSON decoding)

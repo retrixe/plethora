@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:html/parser.dart' show parse;
 
@@ -15,12 +16,13 @@ class TenorScraper {
         // Tenor often uses og:image for the preview/main media.
         // og:image might point to a GIF or an MP4. cached_network_image
         // can sometimes handle MP4s if the platform supports it.
-        final ogImageMeta =
-            document.head?.querySelector('meta[property="og:image"]');
+        final ogImageMeta = document.head?.querySelector(
+          'meta[property="og:image"]',
+        );
         if (ogImageMeta != null) {
           final content = ogImageMeta.attributes['content'];
           if (content != null && content.isNotEmpty) {
-            print('Scraped og:image URL: $content');
+            debugPrint('Scraped og:image URL: $content');
             return content; // Found a potential media URL
           }
         }
@@ -49,16 +51,16 @@ class TenorScraper {
         // }
 
         // If neither attempt finds a URL
-        print('Scraping failed to find a media URL on $tenorPageUrl');
+        debugPrint('Scraping failed to find a media URL on $tenorPageUrl');
         return null;
       } else {
         // Handle non-200 status codes
-        print('Failed to load Tenor page: ${response.statusCode}');
+        debugPrint('Failed to load Tenor page: ${response.statusCode}');
         return null;
       }
     } catch (e) {
       // Handle any exceptions during the process
-      print('Error during scraping: $e');
+      debugPrint('Error during scraping: $e');
       return null;
     }
   }

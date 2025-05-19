@@ -9,6 +9,7 @@ android {
     namespace = "xyz.retrixe.plethora"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
+    ndkVersion = "27.0.12077973" // TODO
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
