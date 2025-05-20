@@ -1,23 +1,30 @@
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:path_provider/path_provider.dart'; // Keep this import
-import 'gif_list_screen.dart';
+import 'package:path_provider/path_provider.dart'; // Import path_provider
 import 'gif_box.dart';
+import 'gif_list_screen.dart';
 import 'models/gif_entry.dart';
+import 'cache/my_cache_manager.dart'; // Ensure this is imported
 
-void main() async {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Get the application support directory instead of documents directory
+  // Get the application support directory
   final appSupportDir = await getApplicationSupportDirectory();
-  // Initialize Hive with the application support directory path
-  Hive.init(appSupportDir.path);
 
-  // Register the adapter for the GifEntry object
+  // Initialize Hive to store its files directly in a subdirectory within appSupportDir
+  await Hive.initFlutter(
+    '${appSupportDir.path}/hive_data',
+  ); // Hive will create 'hive_data' itself
+
+  // Register the adapter for GifEntry
   Hive.registerAdapter(GifEntryAdapter());
 
-  // Open the box for storing GifEntry objects
+  // Open the Hive box for GifEntry
   await Hive.openBox<GifEntry>(gifBoxName);
+
+  // Initialize your custom cache manager
+  MyCacheManager();
 
   runApp(const MyApp());
 }
@@ -28,10 +35,10 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Favorite GIFs',
+      title: 'Favorite GIF Organizer',
       theme: ThemeData(
-        primarySwatch: Colors.blue,
-        visualDensity: VisualDensity.adaptivePlatformDensity,
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        useMaterial3: true,
       ),
       home: const GifListScreen(),
     );

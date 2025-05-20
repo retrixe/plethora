@@ -19,17 +19,20 @@ class GifEntryAdapter extends TypeAdapter<GifEntry> {
     return GifEntry(
       originalUrl: fields[0] as String,
       mediaUrl: fields[1] as String,
+      localPath: fields[2] as String?,
     );
   }
 
   @override
   void write(BinaryWriter writer, GifEntry obj) {
     writer
-      ..writeByte(2)
+      ..writeByte(3)
       ..writeByte(0)
       ..write(obj.originalUrl)
       ..writeByte(1)
-      ..write(obj.mediaUrl);
+      ..write(obj.mediaUrl)
+      ..writeByte(2)
+      ..write(obj.localPath);
   }
 
   @override

@@ -9,6 +9,9 @@ import 'cache/my_cache_manager.dart';
 import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
 import 'dart:io';
+import 'package:path_provider/path_provider.dart'; // Ensure this is imported
+import 'package:uuid/uuid.dart';
+import 'package:http/http.dart' as http;
 
 class GifListScreen extends StatefulWidget {
   const GifListScreen({super.key});
@@ -24,6 +27,30 @@ class _GifListScreenState extends State<GifListScreen> {
 
   final _gifBox = Hive.box<GifEntry>(gifBoxName);
   bool _isProcessingUrl = false;
+  late Directory _permanentGifStorageDirectory;
+  final Uuid _uuid = const Uuid();
+
+  @override
+  void initState() {
+    super.initState();
+    _initializePermanentStorage();
+  }
+
+  Future<void> _initializePermanentStorage() async {
+    // Get the base application support directory
+    final appSupportDir = await getApplicationSupportDirectory();
+
+    // Define the specific subdirectory for GIFs directly within appSupportDir
+    _permanentGifStorageDirectory = Directory(
+      '${appSupportDir.path}/permanent_gifs',
+    );
+    if (!await _permanentGifStorageDirectory.exists()) {
+      await _permanentGifStorageDirectory.create(recursive: true);
+    }
+    debugPrint(
+      'Permanent GIF storage directory: ${_permanentGifStorageDirectory.path}',
+    );
+  }
 
   Future<void> _handleUrlInput() async {
     final originalUrl = _urlController.text.trim();
@@ -57,6 +84,7 @@ class _GifListScreenState extends State<GifListScreen> {
     });
 
     String mediaUrl = originalUrl;
+    String? localPath;
 
     if (originalUrl.contains('tenor.com')) {
       if (!mounted) return;
@@ -100,7 +128,50 @@ class _GifListScreenState extends State<GifListScreen> {
       );
     }
 
-    final gifEntry = GifEntry(originalUrl: originalUrl, mediaUrl: mediaUrl);
+    try {
+      final response = await http.get(Uri.parse(mediaUrl));
+      if (response.statusCode == 200) {
+        final fileExtension = mediaUrl.split('.').last.split('?').first;
+        final uniqueFileName = '${_uuid.v4()}.$fileExtension';
+        final localFile = File(
+          '${_permanentGifStorageDirectory.path}/$uniqueFileName',
+        );
+
+        await localFile.writeAsBytes(response.bodyBytes);
+        localPath = localFile.path;
+        debugPrint('GIF saved permanently to: $localPath');
+      } else {
+        debugPrint(
+          'Failed to download GIF for permanent storage: ${response.statusCode}',
+        );
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Failed to download GIF for permanent storage (${response.statusCode}). Will use URL only.',
+            ),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error saving GIF permanently: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Error saving GIF permanently ($e). Will use URL only.',
+          ),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    }
+
+    final gifEntry = GifEntry(
+      originalUrl: originalUrl,
+      mediaUrl: mediaUrl,
+      localPath: localPath,
+    );
     _gifBox.add(gifEntry);
     _urlController.clear();
 
@@ -109,7 +180,19 @@ class _GifListScreenState extends State<GifListScreen> {
     });
   }
 
-  void _removeGif(int index) {
+  void _removeGif(int index) async {
+    final gifEntry = _gifBox.getAt(index);
+    if (gifEntry != null && gifEntry.localPath != null) {
+      try {
+        final file = File(gifEntry.localPath!);
+        if (await file.exists()) {
+          await file.delete();
+          debugPrint('Deleted local file: ${gifEntry.localPath}');
+        }
+      } catch (e) {
+        debugPrint('Error deleting local file: $e');
+      }
+    }
     _gifBox.deleteAt(index);
     if (!mounted) return;
     ScaffoldMessenger.of(
@@ -270,13 +353,50 @@ class _GifListScreenState extends State<GifListScreen> {
           return;
         }
 
-        _gifBox.addAll(newFavoritesToAdd);
+        List<GifEntry> finalImportedEntries = [];
+        for (final entry in newFavoritesToAdd) {
+          String? importedLocalPath = entry.localPath;
+          if (importedLocalPath == null ||
+              !await File(importedLocalPath).exists()) {
+            try {
+              final response = await http.get(Uri.parse(entry.mediaUrl));
+              if (response.statusCode == 200) {
+                final fileExtension =
+                    entry.mediaUrl.split('.').last.split('?').first;
+                final uniqueFileName = '${_uuid.v4()}.$fileExtension';
+                final localFile = File(
+                  '${_permanentGifStorageDirectory.path}/$uniqueFileName',
+                );
+                await localFile.writeAsBytes(response.bodyBytes);
+                importedLocalPath = localFile.path;
+                debugPrint(
+                  'Imported GIF saved permanently to: $importedLocalPath',
+                );
+              } else {
+                debugPrint(
+                  'Failed to download imported GIF: ${entry.mediaUrl}',
+                );
+              }
+            } catch (e) {
+              debugPrint('Error saving imported GIF: $e');
+            }
+          }
+          finalImportedEntries.add(
+            GifEntry(
+              originalUrl: entry.originalUrl,
+              mediaUrl: entry.mediaUrl,
+              localPath: importedLocalPath,
+            ),
+          );
+        }
+
+        _gifBox.addAll(finalImportedEntries);
 
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Successfully imported ${newFavoritesToAdd.length} favorite(s)!',
+              'Successfully imported ${finalImportedEntries.length} new favorite(s)!',
             ),
             backgroundColor: Colors.green,
           ),
@@ -313,7 +433,6 @@ class _GifListScreenState extends State<GifListScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Favorite GIFs'),
-        // Add actions to the AppBar for the overflow menu
         actions: [
           PopupMenuButton<String>(
             onSelected: (String result) {
@@ -373,8 +492,7 @@ class _GifListScreenState extends State<GifListScreen> {
                 ),
               ],
             ),
-            // Removed the Row containing the import/export buttons from here
-            const SizedBox(height: 16.0), // Keep spacing
+            const SizedBox(height: 16.0),
 
             Expanded(
               child: ValueListenableBuilder<Box<GifEntry>>(
@@ -407,30 +525,49 @@ class _GifListScreenState extends State<GifListScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
-                                CachedNetworkImage(
-                                  imageUrl: gifEntry.mediaUrl,
-                                  cacheManager: MyCacheManager(),
-                                  placeholder:
-                                      (context, url) => Container(
-                                        height: 150,
-                                        color: Colors.grey[300],
-                                        child: const Center(
-                                          child: CircularProgressIndicator(),
-                                        ),
-                                      ),
-                                  errorWidget:
-                                      (context, url, error) => Container(
-                                        height: 150,
-                                        color: Colors.red[100],
-                                        child: const Icon(
-                                          Icons.error,
-                                          color: Colors.red,
-                                        ),
-                                      ),
-                                  width: double.infinity,
-                                  fit: BoxFit.contain,
-                                ),
+                                gifEntry.localPath != null &&
+                                        File(gifEntry.localPath!).existsSync()
+                                    ? Image.file(
+                                      File(gifEntry.localPath!),
+                                      width: double.infinity,
+                                      fit: BoxFit.fitWidth,
+                                      errorBuilder:
+                                          (context, error, stackTrace) =>
+                                              Container(
+                                                height: 150,
+                                                color: Colors.red[100],
+                                                child: const Icon(
+                                                  Icons.error,
+                                                  color: Colors.red,
+                                                ),
+                                              ),
+                                    )
+                                    : CachedNetworkImage(
+                                      imageUrl: gifEntry.mediaUrl,
+                                      cacheManager: MyCacheManager(),
+                                      placeholder:
+                                          (context, url) => Container(
+                                            height: 150,
+                                            color: Colors.grey[300],
+                                            child: const Center(
+                                              child:
+                                                  CircularProgressIndicator(),
+                                            ),
+                                          ),
+                                      errorWidget:
+                                          (context, url, error) => Container(
+                                            height: 150,
+                                            color: Colors.red[100],
+                                            child: const Icon(
+                                              Icons.error,
+                                              color: Colors.red,
+                                            ),
+                                          ),
+                                      width: double.infinity,
+                                      fit: BoxFit.fitWidth,
+                                    ),
                                 const SizedBox(height: 8.0),
+
                                 Row(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
@@ -457,6 +594,16 @@ class _GifListScreenState extends State<GifListScreen> {
                                               style: TextStyle(
                                                 fontSize: 10,
                                                 color: Colors.grey[600],
+                                              ),
+                                            ),
+                                          if (gifEntry.localPath != null)
+                                            Text(
+                                              'Local: ${gifEntry.localPath!.split('/').last}',
+                                              overflow: TextOverflow.ellipsis,
+                                              maxLines: 1,
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                color: Colors.grey[400],
                                               ),
                                             ),
                                         ],
