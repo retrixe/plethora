@@ -4,7 +4,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'gif_box.dart';
 import 'tenor_scraper.dart';
-import 'giphy_scraper.dart'; // Import the new Giphy scraper
+import 'giphy_scraper.dart';
 import 'models/gif_entry.dart';
 import 'cache/my_cache_manager.dart';
 import 'dart:convert';
@@ -23,6 +23,9 @@ class GifListScreen extends StatefulWidget {
 
 class _GifListScreenState extends State<GifListScreen> {
   final TextEditingController _urlController = TextEditingController();
+  final TextEditingController _searchController =
+      TextEditingController(); // New controller for search
+  String _searchText = ''; // New state variable for search text
 
   static const double kDesktopBreakpoint = 600.0;
 
@@ -35,6 +38,14 @@ class _GifListScreenState extends State<GifListScreen> {
   void initState() {
     super.initState();
     _initializePermanentStorage();
+    // Listen to changes in the search text field
+    _searchController.addListener(() {
+      setState(() {
+        _searchText =
+            _searchController.text
+                .toLowerCase(); // Convert to lower case for case-insensitive search
+      });
+    });
   }
 
   Future<void> _initializePermanentStorage() async {
@@ -84,7 +95,6 @@ class _GifListScreenState extends State<GifListScreen> {
     String mediaUrl = originalUrl;
     String? localPath;
 
-    // --- Giphy Integration Start ---
     if (originalUrl.contains('giphy.com')) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -93,7 +103,8 @@ class _GifListScreenState extends State<GifListScreen> {
           duration: Duration(seconds: 2),
         ),
       );
-      final scrapedUrl = await GiphyScraper.scrapeGifUrl(originalUrl);
+      // GiphyScraper.scrapeGifUrl is now synchronous as it only parses the URL string
+      final scrapedUrl = GiphyScraper.scrapeGifUrl(originalUrl);
 
       if (!mounted) return;
 
@@ -101,7 +112,7 @@ class _GifListScreenState extends State<GifListScreen> {
         mediaUrl = scrapedUrl;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Giphy scraping successful! Adding GIF.'),
+            content: Text('Giphy URL parsed successfully! Adding GIF.'),
             backgroundColor: Colors.green,
           ),
         );
@@ -109,7 +120,7 @@ class _GifListScreenState extends State<GifListScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Failed to scrape GIF/media from Giphy URL. Cannot add.',
+              'Failed to parse GIF/media from Giphy URL. Cannot add.',
             ),
             backgroundColor: Colors.redAccent,
           ),
@@ -119,9 +130,7 @@ class _GifListScreenState extends State<GifListScreen> {
         });
         return;
       }
-    }
-    // --- Giphy Integration End ---
-    else if (originalUrl.contains('tenor.com')) {
+    } else if (originalUrl.contains('tenor.com')) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -218,15 +227,24 @@ class _GifListScreenState extends State<GifListScreen> {
   void _removeGif(int index) async {
     // When removing, remember that the list is reversed for display.
     // So, we need to get the original index from the un-reversed box.
-    final originalIndex = _gifBox.length - 1 - index;
-    final gifEntry = _gifBox.getAt(originalIndex);
+    // If the list is filtered, the index might not directly map to the box.
+    // Instead, get the actual GifEntry object from the filtered list.
+    final displayedGifList = _getFilteredGifList();
+    final gifEntryToRemove = displayedGifList[index];
 
-    if (gifEntry != null && gifEntry.localPath != null) {
+    // Find the actual index in the unfiltered box to remove it
+    final originalIndex = _gifBox.values.toList().indexOf(gifEntryToRemove);
+    if (originalIndex == -1) {
+      debugPrint('Error: GIF not found in box for removal.');
+      return;
+    }
+
+    if (gifEntryToRemove.localPath != null) {
       try {
-        final file = File(gifEntry.localPath!);
+        final file = File(gifEntryToRemove.localPath!);
         if (await file.exists()) {
           await file.delete();
-          debugPrint('Deleted local file: ${gifEntry.localPath}');
+          debugPrint('Deleted local file: ${gifEntryToRemove.localPath}');
         }
       } catch (e) {
         debugPrint('Error deleting local file: $e');
@@ -458,9 +476,30 @@ class _GifListScreenState extends State<GifListScreen> {
     }
   }
 
+  // New helper method to get filtered GIF list
+  List<GifEntry> _getFilteredGifList() {
+    final allGifs =
+        _gifBox.values
+            .toList()
+            .reversed
+            .toList(); // Always start with reversed list
+    if (_searchText.isEmpty) {
+      return allGifs;
+    } else {
+      return allGifs.where((gif) {
+        final lowerCaseSearchText = _searchText.toLowerCase();
+        return gif.originalUrl.toLowerCase().contains(lowerCaseSearchText) ||
+            gif.mediaUrl.toLowerCase().contains(lowerCaseSearchText) ||
+            (gif.localPath?.toLowerCase().contains(lowerCaseSearchText) ??
+                false); // Check localPath too
+      }).toList();
+    }
+  }
+
   @override
   void dispose() {
     _urlController.dispose();
+    _searchController.dispose(); // Dispose the new search controller
     super.dispose();
   }
 
@@ -505,8 +544,7 @@ class _GifListScreenState extends State<GifListScreen> {
                   child: TextField(
                     controller: _urlController,
                     decoration: InputDecoration(
-                      hintText:
-                          'Enter URL (GIF, Tenor, Giphy, Discord)', // Updated hint
+                      hintText: 'Enter URL (GIF, Tenor, Giphy, Discord)',
                       border: const OutlineInputBorder(),
                       contentPadding: const EdgeInsets.symmetric(
                         horizontal: 10.0,
@@ -533,11 +571,43 @@ class _GifListScreenState extends State<GifListScreen> {
               ],
             ),
             const SizedBox(height: 16.0),
+            // New Search Bar
+            Padding(
+              padding: const EdgeInsets.only(bottom: 16.0),
+              child: TextField(
+                controller: _searchController,
+                decoration: const InputDecoration(
+                  labelText: 'Search GIFs',
+                  hintText: 'Filter by URL or local path...',
+                  prefixIcon: Icon(Icons.search),
+                  border: OutlineInputBorder(),
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 10.0,
+                    vertical: 0,
+                  ), // Adjust vertical padding
+                ),
+                onChanged: (value) {
+                  // The addListener on the controller already handles setState
+                  // This callback can be used for other logic if needed.
+                },
+              ),
+            ),
             Expanded(
               child: ValueListenableBuilder<Box<GifEntry>>(
                 valueListenable: _gifBox.listenable(),
                 builder: (context, box, _) {
-                  if (box.isEmpty) {
+                  final filteredGifList =
+                      _getFilteredGifList(); // Get the filtered list
+
+                  if (filteredGifList.isEmpty) {
+                    if (_searchText.isNotEmpty) {
+                      return const Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(16.0),
+                          child: Text('No GIFs match your search.'),
+                        ),
+                      );
+                    }
                     return const Center(
                       child: Padding(
                         padding: EdgeInsets.all(16.0),
@@ -545,12 +615,11 @@ class _GifListScreenState extends State<GifListScreen> {
                       ),
                     );
                   }
-                  // Sort the GIFs in reverse order of addition (newest at the top)
-                  final gifList = box.values.toList().reversed.toList();
                   return ListView.builder(
-                    itemCount: gifList.length,
+                    itemCount: filteredGifList.length,
                     itemBuilder: (context, index) {
-                      final gifEntry = gifList[index];
+                      final gifEntry =
+                          filteredGifList[index]; // Use the filtered list
 
                       final displayedOriginalUrl = _cleanDiscordUrlForDisplay(
                         gifEntry.originalUrl,
