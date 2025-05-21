@@ -392,12 +392,12 @@ class _GifListScreenState extends State<GifListScreen> {
 
         final existingUrls =
             _gifBox.values.map((entry) => entry.originalUrl).toSet();
-        final newFavoritesToAdd =
+        final List<GifEntry> newFavoritesToProcess =
             importedFavorites.where((importedEntry) {
               return !existingUrls.contains(importedEntry.originalUrl);
             }).toList();
 
-        if (newFavoritesToAdd.isEmpty) {
+        if (newFavoritesToProcess.isEmpty) {
           if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -411,10 +411,26 @@ class _GifListScreenState extends State<GifListScreen> {
         }
 
         List<GifEntry> finalImportedEntries = [];
-        for (final entry in newFavoritesToAdd) {
-          String? importedLocalPath = entry.localPath;
-          if (importedLocalPath == null ||
-              !await File(importedLocalPath).exists()) {
+        int successfullyDownloaded = 0;
+        int failedDownloads = 0;
+
+        for (final entry in newFavoritesToProcess) {
+          String? currentLocalPath =
+              entry.localPath; // Start with the path from the imported JSON
+
+          // Check if localPath exists and is valid
+          if (currentLocalPath != null &&
+              await File(currentLocalPath).exists()) {
+            debugPrint(
+              'Local file exists for ${entry.originalUrl}: $currentLocalPath',
+            );
+            // File exists, no need to re-download
+          } else {
+            // Local path is null or file doesn't exist, try to download
+            debugPrint(
+              'Local file missing or invalid for ${entry.originalUrl}. Attempting download...',
+            );
+            String? newLocalPath;
             try {
               final response = await http.get(Uri.parse(entry.mediaUrl));
               if (response.statusCode == 200) {
@@ -425,24 +441,29 @@ class _GifListScreenState extends State<GifListScreen> {
                   '${_permanentGifStorageDirectory.path}/$uniqueFileName',
                 );
                 await localFile.writeAsBytes(response.bodyBytes);
-                importedLocalPath = localFile.path;
-                debugPrint(
-                  'Imported GIF saved permanently to: $importedLocalPath',
-                );
+                newLocalPath = localFile.path;
+                debugPrint('Successfully downloaded and saved: $newLocalPath');
+                successfullyDownloaded++;
               } else {
                 debugPrint(
-                  'Failed to download imported GIF: ${entry.mediaUrl}',
+                  'Failed to download ${entry.mediaUrl}: Status ${response.statusCode}',
                 );
+                failedDownloads++;
               }
             } catch (e) {
-              debugPrint('Error saving imported GIF: $e');
+              debugPrint('Error during download of ${entry.mediaUrl}: $e');
+              failedDownloads++;
             }
+            currentLocalPath =
+                newLocalPath; // Update localPath with the newly downloaded path or null
           }
+
           finalImportedEntries.add(
             GifEntry(
               originalUrl: entry.originalUrl,
               mediaUrl: entry.mediaUrl,
-              localPath: importedLocalPath,
+              localPath:
+                  currentLocalPath, // Use the new (or existing valid) local path
             ),
           );
         }
@@ -450,12 +471,24 @@ class _GifListScreenState extends State<GifListScreen> {
         _gifBox.addAll(finalImportedEntries);
 
         if (!mounted) return;
+        String message =
+            'Successfully imported ${finalImportedEntries.length} new favorite(s). ';
+        if (successfullyDownloaded > 0) {
+          message += '$successfullyDownloaded GIF(s) were downloaded locally.';
+        }
+        if (failedDownloads > 0) {
+          message += '$failedDownloads GIF(s) failed to download locally.';
+        }
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              'Successfully imported ${finalImportedEntries.length} new favorite(s)!',
+            content: Text(message),
+            backgroundColor:
+                (failedDownloads > 0) ? Colors.orange : Colors.green,
+            duration: Duration(
+              seconds:
+                  (successfullyDownloaded > 0 || failedDownloads > 0) ? 5 : 3,
             ),
-            backgroundColor: Colors.green,
           ),
         );
       } else {
