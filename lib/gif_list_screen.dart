@@ -4,12 +4,13 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'gif_box.dart';
 import 'tenor_scraper.dart';
+import 'giphy_scraper.dart'; // Import the new Giphy scraper
 import 'models/gif_entry.dart';
 import 'cache/my_cache_manager.dart';
 import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
 import 'dart:io';
-import 'package:path_provider/path_provider.dart'; // Ensure this is imported
+import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 import 'package:http/http.dart' as http;
 
@@ -37,10 +38,7 @@ class _GifListScreenState extends State<GifListScreen> {
   }
 
   Future<void> _initializePermanentStorage() async {
-    // Get the base application support directory
     final appSupportDir = await getApplicationSupportDirectory();
-
-    // Define the specific subdirectory for GIFs directly within appSupportDir
     _permanentGifStorageDirectory = Directory(
       '${appSupportDir.path}/permanent_gifs',
     );
@@ -86,7 +84,44 @@ class _GifListScreenState extends State<GifListScreen> {
     String mediaUrl = originalUrl;
     String? localPath;
 
-    if (originalUrl.contains('tenor.com')) {
+    // --- Giphy Integration Start ---
+    if (originalUrl.contains('giphy.com')) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Attempting to scrape Giphy URL...'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      final scrapedUrl = await GiphyScraper.scrapeGifUrl(originalUrl);
+
+      if (!mounted) return;
+
+      if (scrapedUrl != null) {
+        mediaUrl = scrapedUrl;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Giphy scraping successful! Adding GIF.'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Failed to scrape GIF/media from Giphy URL. Cannot add.',
+            ),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+        setState(() {
+          _isProcessingUrl = false;
+        });
+        return;
+      }
+    }
+    // --- Giphy Integration End ---
+    else if (originalUrl.contains('tenor.com')) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -102,7 +137,7 @@ class _GifListScreenState extends State<GifListScreen> {
         mediaUrl = scrapedUrl;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Scraping successful! Adding GIF.'),
+            content: Text('Tenor scraping successful! Adding GIF.'),
             backgroundColor: Colors.green,
           ),
         );
@@ -181,7 +216,11 @@ class _GifListScreenState extends State<GifListScreen> {
   }
 
   void _removeGif(int index) async {
-    final gifEntry = _gifBox.getAt(index);
+    // When removing, remember that the list is reversed for display.
+    // So, we need to get the original index from the un-reversed box.
+    final originalIndex = _gifBox.length - 1 - index;
+    final gifEntry = _gifBox.getAt(originalIndex);
+
     if (gifEntry != null && gifEntry.localPath != null) {
       try {
         final file = File(gifEntry.localPath!);
@@ -193,7 +232,7 @@ class _GifListScreenState extends State<GifListScreen> {
         debugPrint('Error deleting local file: $e');
       }
     }
-    _gifBox.deleteAt(index);
+    _gifBox.deleteAt(originalIndex);
     if (!mounted) return;
     ScaffoldMessenger.of(
       context,
@@ -466,7 +505,8 @@ class _GifListScreenState extends State<GifListScreen> {
                   child: TextField(
                     controller: _urlController,
                     decoration: InputDecoration(
-                      hintText: 'Enter URL (GIF, Tenor, Discord)',
+                      hintText:
+                          'Enter URL (GIF, Tenor, Giphy, Discord)', // Updated hint
                       border: const OutlineInputBorder(),
                       contentPadding: const EdgeInsets.symmetric(
                         horizontal: 10.0,
@@ -493,23 +533,24 @@ class _GifListScreenState extends State<GifListScreen> {
               ],
             ),
             const SizedBox(height: 16.0),
-
             Expanded(
               child: ValueListenableBuilder<Box<GifEntry>>(
                 valueListenable: _gifBox.listenable(),
                 builder: (context, box, _) {
                   if (box.isEmpty) {
                     return const Center(
-                      child: Text('No favorite GIFs yet. Add URLs!'),
+                      child: Padding(
+                        padding: EdgeInsets.all(16.0),
+                        child: Text('No favorite GIFs yet. Add URLs!'),
+                      ),
                     );
                   }
+                  // Sort the GIFs in reverse order of addition (newest at the top)
+                  final gifList = box.values.toList().reversed.toList();
                   return ListView.builder(
-                    itemCount: box.length,
+                    itemCount: gifList.length,
                     itemBuilder: (context, index) {
-                      final gifEntry = box.getAt(index);
-                      if (gifEntry == null) {
-                        return const SizedBox.shrink();
-                      }
+                      final gifEntry = gifList[index];
 
                       final displayedOriginalUrl = _cleanDiscordUrlForDisplay(
                         gifEntry.originalUrl,
@@ -567,7 +608,6 @@ class _GifListScreenState extends State<GifListScreen> {
                                       fit: BoxFit.fitWidth,
                                     ),
                                 const SizedBox(height: 8.0),
-
                                 Row(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
