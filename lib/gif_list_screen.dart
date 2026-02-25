@@ -14,6 +14,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
+import 'package:archive/archive_io.dart';
 
 class GifListScreen extends StatefulWidget {
   const GifListScreen({super.key});
@@ -305,21 +306,44 @@ class _GifListScreenState extends State<GifListScreen> {
           allFavorites.map((gifEntry) => gifEntry.toJson()).toList();
       final String jsonString = jsonEncode(jsonList);
 
-      String? outputFile = await FilePicker.platform.saveFile(
+      String? outputPath = await FilePicker.platform.saveFile(
         dialogTitle: 'Export Favorite GIFs',
-        fileName: 'favorite_gifs_export.json',
-        allowedExtensions: ['json'],
+        fileName: 'favorite_gifs_export.zip',
+        allowedExtensions: ['zip'],
         type: FileType.custom,
       );
 
-      if (outputFile != null) {
-        final File file = File(outputFile);
-        await file.writeAsString(jsonString);
+      if (outputPath != null) {
+        // Create archive
+        final archive = Archive();
+
+        // Add JSON metadata file
+        archive.addFile(
+          ArchiveFile('metadata.json', jsonString.length, jsonString.codeUnits),
+        );
+
+        // Add local GIF files
+        int gifCount = 0;
+        for (final gifEntry in allFavorites) {
+          if (gifEntry.localPath != null) {
+            final gifFile = File(gifEntry.localPath!);
+            if (await gifFile.exists()) {
+              final bytes = await gifFile.readAsBytes();
+              final fileName = gifEntry.localPath!.split('/').last;
+              archive.addFile(ArchiveFile(fileName, bytes.length, bytes));
+              gifCount++;
+            }
+          }
+        }
+
+        // Write ZIP file
+        final zipFile = File(outputPath);
+        await zipFile.writeAsBytes(ZipEncoder().encode(archive)!);
 
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Favorites exported to $outputFile'),
+            content: Text('Exported to $outputPath ($gifCount GIFs included)'),
             backgroundColor: Colors.green,
           ),
         );
@@ -345,7 +369,7 @@ class _GifListScreenState extends State<GifListScreen> {
     try {
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         dialogTitle: 'Import Favorite GIFs',
-        allowedExtensions: ['json'],
+        allowedExtensions: ['json', 'zip'],
         type: FileType.custom,
         allowMultiple: false,
       );
@@ -364,8 +388,43 @@ class _GifListScreenState extends State<GifListScreen> {
           return;
         }
 
-        final File file = File(selectedFile.path!);
-        final String jsonString = await file.readAsString();
+        final filePath = selectedFile.path!;
+        String jsonString = '';
+        Map<String, List<int>> extractedGifs = {}; // fileName -> fileBytes
+
+        // Check if it's a ZIP file
+        if (filePath.endsWith('.zip')) {
+          final zipFile = File(filePath);
+          final zipBytes = await zipFile.readAsBytes();
+          final archive = ZipDecoder().decodeBytes(zipBytes);
+
+          // Extract metadata.json and GIF files
+          for (final file in archive) {
+            if (file.name == 'metadata.json') {
+              jsonString = String.fromCharCodes(file.content as List<int>);
+            } else if (!file.isFile || file.name.startsWith('/')) {
+              continue;
+            } else {
+              // This is a GIF file
+              extractedGifs[file.name] = file.content as List<int>;
+            }
+          }
+
+          if (jsonString.isEmpty) {
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('No metadata.json found in ZIP file.'),
+                backgroundColor: Colors.redAccent,
+              ),
+            );
+            return;
+          }
+        } else {
+          // It's a JSON file
+          final file = File(filePath);
+          jsonString = await file.readAsString();
+        }
 
         final List<dynamic> decodedJson = jsonDecode(jsonString);
 
@@ -414,59 +473,62 @@ class _GifListScreenState extends State<GifListScreen> {
         }
 
         List<GifEntry> finalImportedEntries = [];
-        int successfullyDownloaded = 0;
-        int failedDownloads = 0;
+        int successfullyImported = 0;
+        int failedImports = 0;
 
         for (final entry in newFavoritesToProcess) {
-          String? currentLocalPath =
-              entry.localPath; // Start with the path from the imported JSON
+          String? currentLocalPath;
 
-          // Check if localPath exists and is valid
-          if (currentLocalPath != null &&
-              await File(currentLocalPath).exists()) {
-            debugPrint(
-              'Local file exists for ${entry.originalUrl}: $currentLocalPath',
-            );
-            // File exists, no need to re-download
-          } else {
-            // Local path is null or file doesn't exist, try to download
-            debugPrint(
-              'Local file missing or invalid for ${entry.originalUrl}. Attempting download...',
-            );
-            String? newLocalPath;
-            try {
-              final response = await http.get(Uri.parse(entry.mediaUrl));
-              if (response.statusCode == 200) {
-                final fileExtension =
-                    entry.mediaUrl.split('.').last.split('?').first;
-                final uniqueFileName = '${_uuid.v4()}.$fileExtension';
+          // Check if the GIF was exported with the ZIP
+          if (entry.localPath != null) {
+            final fileName = entry.localPath!.split('/').last;
+            if (extractedGifs.containsKey(fileName)) {
+              // Copy the extracted GIF to permanent storage
+              try {
                 final localFile = File(
-                  '${_permanentGifStorageDirectory.path}/$uniqueFileName',
+                  '${_permanentGifStorageDirectory.path}/$fileName',
                 );
-                await localFile.writeAsBytes(response.bodyBytes);
-                newLocalPath = localFile.path;
-                debugPrint('Successfully downloaded and saved: $newLocalPath');
-                successfullyDownloaded++;
-              } else {
-                debugPrint(
-                  'Failed to download ${entry.mediaUrl}: Status ${response.statusCode}',
-                );
-                failedDownloads++;
+                await localFile.writeAsBytes(extractedGifs[fileName]!);
+                currentLocalPath = localFile.path;
+                debugPrint('Imported GIF from ZIP: $currentLocalPath');
+                successfullyImported++;
+              } catch (e) {
+                debugPrint('Error importing GIF file: $e');
+                failedImports++;
               }
-            } catch (e) {
-              debugPrint('Error during download of ${entry.mediaUrl}: $e');
-              failedDownloads++;
+            } else {
+              // GIF not in ZIP, try to download
+              try {
+                final response = await http.get(Uri.parse(entry.mediaUrl));
+                if (response.statusCode == 200) {
+                  final fileExtension =
+                      entry.mediaUrl.split('.').last.split('?').first;
+                  final uniqueFileName = '${_uuid.v4()}.$fileExtension';
+                  final localFile = File(
+                    '${_permanentGifStorageDirectory.path}/$uniqueFileName',
+                  );
+                  await localFile.writeAsBytes(response.bodyBytes);
+                  currentLocalPath = localFile.path;
+                  debugPrint('Downloaded GIF: $currentLocalPath');
+                  successfullyImported++;
+                } else {
+                  debugPrint(
+                    'Failed to download ${entry.mediaUrl}: Status ${response.statusCode}',
+                  );
+                  failedImports++;
+                }
+              } catch (e) {
+                debugPrint('Error downloading GIF: $e');
+                failedImports++;
+              }
             }
-            currentLocalPath =
-                newLocalPath; // Update localPath with the newly downloaded path or null
           }
 
           finalImportedEntries.add(
             GifEntry(
               originalUrl: entry.originalUrl,
               mediaUrl: entry.mediaUrl,
-              localPath:
-                  currentLocalPath, // Use the new (or existing valid) local path
+              localPath: currentLocalPath,
             ),
           );
         }
@@ -476,21 +538,19 @@ class _GifListScreenState extends State<GifListScreen> {
         if (!mounted) return;
         String message =
             'Successfully imported ${finalImportedEntries.length} new favorite(s). ';
-        if (successfullyDownloaded > 0) {
-          message += '$successfullyDownloaded GIF(s) were downloaded locally.';
+        if (successfullyImported > 0) {
+          message += '$successfullyImported GIF(s) were imported.';
         }
-        if (failedDownloads > 0) {
-          message += '$failedDownloads GIF(s) failed to download locally.';
+        if (failedImports > 0) {
+          message += '$failedImports GIF(s) failed to import.';
         }
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(message),
-            backgroundColor:
-                (failedDownloads > 0) ? Colors.orange : Colors.green,
+            backgroundColor: (failedImports > 0) ? Colors.orange : Colors.green,
             duration: Duration(
-              seconds:
-                  (successfullyDownloaded > 0 || failedDownloads > 0) ? 5 : 3,
+              seconds: (successfullyImported > 0 || failedImports > 0) ? 5 : 3,
             ),
           ),
         );
