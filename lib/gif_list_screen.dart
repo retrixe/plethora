@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'gif_box.dart';
@@ -15,6 +16,61 @@ import 'package:uuid/uuid.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'package:archive/archive_io.dart';
+
+class _ExportData {
+  final String jsonString;
+  final List<String> localPaths;
+  final String outputPath;
+
+  _ExportData({
+    required this.jsonString,
+    required this.localPaths,
+    required this.outputPath,
+  });
+}
+
+class _ExportResult {
+  final bool success;
+  final int gifCount;
+  final String? error;
+
+  _ExportResult({required this.success, required this.gifCount, this.error});
+}
+
+Future<_ExportResult> _performExportInBackground(_ExportData data) async {
+  try {
+    final archive = Archive();
+
+    // Add JSON metadata file
+    archive.addFile(
+      ArchiveFile(
+        'metadata.json',
+        data.jsonString.length,
+        data.jsonString.codeUnits,
+      ),
+    );
+
+    // Add local GIF files
+    int gifCount = 0;
+    for (final localPath in data.localPaths) {
+      final gifFile = File(localPath);
+      if (await gifFile.exists()) {
+        final bytes = await gifFile.readAsBytes();
+        final fileName = localPath.split('/').last;
+        archive.addFile(ArchiveFile(fileName, bytes.length, bytes));
+        gifCount++;
+      }
+    }
+
+    // Write ZIP file
+    final zipFile = File(data.outputPath);
+    await zipFile.writeAsBytes(ZipEncoder().encode(archive)!);
+
+    return _ExportResult(success: true, gifCount: gifCount);
+  } catch (e) {
+    return _ExportResult(success: false, gifCount: 0, error: e.toString());
+  }
+}
 
 class GifListScreen extends StatefulWidget {
   const GifListScreen({super.key});
@@ -331,43 +387,44 @@ class _GifListScreenState extends State<GifListScreen> {
           },
         );
 
-        // Create archive
-        final archive = Archive();
-
-        // Add JSON metadata file
-        archive.addFile(
-          ArchiveFile('metadata.json', jsonString.length, jsonString.codeUnits),
-        );
-
-        // Add local GIF files
-        int gifCount = 0;
+        // Collect local paths for background task
+        final localPaths = <String>[];
         for (final gifEntry in allFavorites) {
           if (gifEntry.localPath != null) {
-            final gifFile = File(gifEntry.localPath!);
-            if (await gifFile.exists()) {
-              final bytes = await gifFile.readAsBytes();
-              final fileName = gifEntry.localPath!.split('/').last;
-              archive.addFile(ArchiveFile(fileName, bytes.length, bytes));
-              gifCount++;
-            }
+            localPaths.add(gifEntry.localPath!);
           }
         }
 
-        // Write ZIP file
-        final zipFile = File(outputPath);
-        await zipFile.writeAsBytes(ZipEncoder().encode(archive)!);
+        // Run export in background isolate
+        final exportData = _ExportData(
+          jsonString: jsonString,
+          localPaths: localPaths,
+          outputPath: outputPath,
+        );
+        final result = await compute(_performExportInBackground, exportData);
 
         if (!mounted) return;
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Exported to $outputPath ($gifCount GIFs included)'),
-            backgroundColor: Colors.green,
-          ),
-        );
+
+        if (result.success) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Exported to $outputPath (${result.gifCount} GIFs included)',
+              ),
+              backgroundColor: Colors.green,
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Export failed: ${result.error}'),
+              backgroundColor: Colors.redAccent,
+            ),
+          );
+        }
       } else {
         if (!mounted) return;
-        Navigator.pop(context);
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('Export canceled.')));
@@ -375,7 +432,11 @@ class _GifListScreenState extends State<GifListScreen> {
     } catch (e) {
       debugPrint('Error exporting favorites: $e');
       if (!mounted) return;
-      Navigator.pop(context);
+      try {
+        Navigator.pop(context);
+      } catch (_) {
+        // Dialog might not be open
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Failed to export favorites: $e'),
