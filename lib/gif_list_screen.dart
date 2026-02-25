@@ -33,6 +33,7 @@ class _GifListScreenState extends State<GifListScreen> {
   final _gifBox = Hive.box<GifEntry>(gifBoxName);
   bool _isProcessingUrl = false;
   bool _useMasonryLayout = true;
+  bool _showDetails = false;
   late Directory _permanentGifStorageDirectory;
   final Uuid _uuid = const Uuid();
 
@@ -562,6 +563,10 @@ class _GifListScreenState extends State<GifListScreen> {
                 setState(() {
                   _useMasonryLayout = !_useMasonryLayout;
                 });
+              } else if (result == 'details') {
+                setState(() {
+                  _showDetails = !_showDetails;
+                });
               }
             },
             itemBuilder:
@@ -579,6 +584,11 @@ class _GifListScreenState extends State<GifListScreen> {
                     value: 'masonry',
                     checked: _useMasonryLayout,
                     child: const Text('Masonry layout'),
+                  ),
+                  CheckedPopupMenuItem<String>(
+                    value: 'details',
+                    checked: _showDetails,
+                    child: const Text('Show details'),
                   ),
                 ],
           ),
@@ -744,8 +754,9 @@ class _GifListScreenState extends State<GifListScreen> {
                                             fontWeight: FontWeight.bold,
                                           ),
                                         ),
-                                        if (gifEntry.originalUrl !=
-                                            gifEntry.mediaUrl)
+                                        if (_showDetails &&
+                                            gifEntry.originalUrl !=
+                                                gifEntry.mediaUrl)
                                           Text(
                                             'Media: ${gifEntry.mediaUrl}',
                                             overflow: TextOverflow.ellipsis,
@@ -755,7 +766,8 @@ class _GifListScreenState extends State<GifListScreen> {
                                               color: Colors.grey[600],
                                             ),
                                           ),
-                                        if (gifEntry.localPath != null)
+                                        if (_showDetails &&
+                                            gifEntry.localPath != null)
                                           Text(
                                             'Local: ${gifEntry.localPath!.split('/').last}',
                                             overflow: TextOverflow.ellipsis,
