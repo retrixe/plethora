@@ -13,6 +13,7 @@ import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 import 'package:http/http.dart' as http;
+import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 
 class GifListScreen extends StatefulWidget {
   const GifListScreen({super.key});
@@ -31,6 +32,7 @@ class _GifListScreenState extends State<GifListScreen> {
 
   final _gifBox = Hive.box<GifEntry>(gifBoxName);
   bool _isProcessingUrl = false;
+  bool _useMasonryLayout = true;
   late Directory _permanentGifStorageDirectory;
   final Uuid _uuid = const Uuid();
 
@@ -540,6 +542,11 @@ class _GifListScreenState extends State<GifListScreen> {
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
     final isDesktop = screenWidth > kDesktopBreakpoint;
+    final int crossAxisCount =
+        (isDesktop
+                ? (screenWidth / 280).floor().clamp(2, 4)
+                : (screenWidth / 180).floor().clamp(1, 2))
+            .toInt();
 
     return Scaffold(
       appBar: AppBar(
@@ -551,6 +558,10 @@ class _GifListScreenState extends State<GifListScreen> {
                 _exportFavorites();
               } else if (result == 'import') {
                 _importFavorites();
+              } else if (result == 'masonry') {
+                setState(() {
+                  _useMasonryLayout = !_useMasonryLayout;
+                });
               }
             },
             itemBuilder:
@@ -562,6 +573,12 @@ class _GifListScreenState extends State<GifListScreen> {
                   const PopupMenuItem<String>(
                     value: 'import',
                     child: Text('Import Favorites'),
+                  ),
+                  const PopupMenuDivider(),
+                  CheckedPopupMenuItem<String>(
+                    value: 'masonry',
+                    checked: _useMasonryLayout,
+                    child: const Text('Masonry layout'),
                   ),
                 ],
           ),
@@ -648,126 +665,148 @@ class _GifListScreenState extends State<GifListScreen> {
                       ),
                     );
                   }
-                  return ListView.builder(
-                    itemCount: filteredGifList.length,
-                    itemBuilder: (context, index) {
-                      final gifEntry =
-                          filteredGifList[index]; // Use the filtered list
+                  Widget buildGifCard(int index) {
+                    final gifEntry =
+                        filteredGifList[index]; // Use the filtered list
 
-                      final displayedOriginalUrl = _cleanDiscordUrlForDisplay(
-                        gifEntry.originalUrl,
-                      );
+                    final displayedOriginalUrl = _cleanDiscordUrlForDisplay(
+                      gifEntry.originalUrl,
+                    );
 
-                      Widget gifCard = Card(
-                        margin: const EdgeInsets.symmetric(vertical: 4.0),
-                        clipBehavior: Clip.antiAlias,
-                        child: GestureDetector(
-                          onTap: () => _copyOriginalUrl(gifEntry.originalUrl),
-                          child: Padding(
-                            padding: const EdgeInsets.all(8.0),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                gifEntry.localPath != null &&
-                                        File(gifEntry.localPath!).existsSync()
-                                    ? Image.file(
-                                      File(gifEntry.localPath!),
-                                      width: double.infinity,
-                                      fit: BoxFit.fitWidth,
-                                      errorBuilder:
-                                          (context, error, stackTrace) =>
-                                              Container(
-                                                height: 150,
-                                                color: Colors.red[100],
-                                                child: const Icon(
-                                                  Icons.error,
-                                                  color: Colors.red,
-                                                ),
+                    return Card(
+                      margin:
+                          _useMasonryLayout
+                              ? EdgeInsets.zero
+                              : const EdgeInsets.symmetric(vertical: 4.0),
+                      clipBehavior: Clip.antiAlias,
+                      child: GestureDetector(
+                        onTap: () => _copyOriginalUrl(gifEntry.originalUrl),
+                        child: Padding(
+                          padding: const EdgeInsets.all(8.0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              gifEntry.localPath != null &&
+                                      File(gifEntry.localPath!).existsSync()
+                                  ? Image.file(
+                                    File(gifEntry.localPath!),
+                                    width: double.infinity,
+                                    fit: BoxFit.fitWidth,
+                                    errorBuilder:
+                                        (context, error, stackTrace) =>
+                                            Container(
+                                              height: 150,
+                                              color: Colors.red[100],
+                                              child: const Icon(
+                                                Icons.error,
+                                                color: Colors.red,
                                               ),
-                                    )
-                                    : CachedNetworkImage(
-                                      imageUrl: gifEntry.mediaUrl,
-                                      cacheManager: MyCacheManager(),
-                                      placeholder:
-                                          (context, url) => Container(
-                                            height: 150,
-                                            color: Colors.grey[300],
-                                            child: const Center(
-                                              child:
-                                                  CircularProgressIndicator(),
                                             ),
+                                  )
+                                  : CachedNetworkImage(
+                                    imageUrl: gifEntry.mediaUrl,
+                                    cacheManager: MyCacheManager(),
+                                    placeholder:
+                                        (context, url) => Container(
+                                          height: 150,
+                                          color: Colors.grey[300],
+                                          child: const Center(
+                                            child: CircularProgressIndicator(),
                                           ),
-                                      errorWidget:
-                                          (context, url, error) => Container(
-                                            height: 150,
-                                            color: Colors.red[100],
-                                            child: const Icon(
-                                              Icons.error,
-                                              color: Colors.red,
-                                            ),
+                                        ),
+                                    errorWidget:
+                                        (context, url, error) => Container(
+                                          height: 150,
+                                          color: Colors.red[100],
+                                          child: const Icon(
+                                            Icons.error,
+                                            color: Colors.red,
                                           ),
-                                      width: double.infinity,
-                                      fit: BoxFit.fitWidth,
-                                    ),
-                                const SizedBox(height: 8.0),
-                                Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
+                                        ),
+                                    width: double.infinity,
+                                    fit: BoxFit.fitWidth,
+                                  ),
+                              const SizedBox(height: 8.0),
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          displayedOriginalUrl,
+                                          overflow: TextOverflow.ellipsis,
+                                          maxLines: 2,
+                                          style: const TextStyle(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                        if (gifEntry.originalUrl !=
+                                            gifEntry.mediaUrl)
                                           Text(
-                                            displayedOriginalUrl,
+                                            'Media: ${gifEntry.mediaUrl}',
                                             overflow: TextOverflow.ellipsis,
                                             maxLines: 2,
-                                            style: const TextStyle(
-                                              fontSize: 14,
-                                              fontWeight: FontWeight.bold,
+                                            style: TextStyle(
+                                              fontSize: 10,
+                                              color: Colors.grey[600],
                                             ),
                                           ),
-                                          if (gifEntry.originalUrl !=
-                                              gifEntry.mediaUrl)
-                                            Text(
-                                              'Media: ${gifEntry.mediaUrl}',
-                                              overflow: TextOverflow.ellipsis,
-                                              maxLines: 2,
-                                              style: TextStyle(
-                                                fontSize: 10,
-                                                color: Colors.grey[600],
-                                              ),
+                                        if (gifEntry.localPath != null)
+                                          Text(
+                                            'Local: ${gifEntry.localPath!.split('/').last}',
+                                            overflow: TextOverflow.ellipsis,
+                                            maxLines: 1,
+                                            style: TextStyle(
+                                              fontSize: 10,
+                                              color: Colors.grey[400],
                                             ),
-                                          if (gifEntry.localPath != null)
-                                            Text(
-                                              'Local: ${gifEntry.localPath!.split('/').last}',
-                                              overflow: TextOverflow.ellipsis,
-                                              maxLines: 1,
-                                              style: TextStyle(
-                                                fontSize: 10,
-                                                color: Colors.grey[400],
-                                              ),
-                                            ),
-                                        ],
-                                      ),
+                                          ),
+                                      ],
                                     ),
-                                    IconButton(
-                                      icon: const Icon(
-                                        Icons.delete,
-                                        color: Colors.red,
-                                      ),
-                                      onPressed: () => _removeGif(index),
-                                      padding: EdgeInsets.zero,
-                                      visualDensity: VisualDensity.compact,
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(
+                                      Icons.delete,
+                                      color: Colors.red,
                                     ),
-                                  ],
-                                ),
-                              ],
-                            ),
+                                    onPressed: () => _removeGif(index),
+                                    padding: EdgeInsets.zero,
+                                    visualDensity: VisualDensity.compact,
+                                  ),
+                                ],
+                              ),
+                            ],
                           ),
                         ),
-                      );
+                      ),
+                    );
+                  }
 
+                  if (_useMasonryLayout) {
+                    return MasonryGridView.builder(
+                      padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                      gridDelegate:
+                          SliverSimpleGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: crossAxisCount,
+                          ),
+                      mainAxisSpacing: 8.0,
+                      crossAxisSpacing: 8.0,
+                      itemCount: filteredGifList.length,
+                      itemBuilder: (context, index) {
+                        return buildGifCard(index);
+                      },
+                    );
+                  }
+
+                  return ListView.builder(
+                    padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                    itemCount: filteredGifList.length,
+                    itemBuilder: (context, index) {
+                      final gifCard = buildGifCard(index);
                       if (isDesktop) {
                         return Center(
                           child: ConstrainedBox(
@@ -775,12 +814,8 @@ class _GifListScreenState extends State<GifListScreen> {
                             child: gifCard,
                           ),
                         );
-                      } else {
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                          child: gifCard,
-                        );
                       }
+                      return gifCard;
                     },
                   );
                 },
