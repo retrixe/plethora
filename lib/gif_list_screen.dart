@@ -691,53 +691,51 @@ class _GifListScreenState extends State<GifListScreen> {
                       clipBehavior: Clip.antiAlias,
                       child: GestureDetector(
                         onTap: () => _copyOriginalUrl(gifEntry.originalUrl),
-                        child: Padding(
-                          padding: const EdgeInsets.all(8.0),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              gifEntry.localPath != null &&
-                                      File(gifEntry.localPath!).existsSync()
-                                  ? Image.file(
-                                    File(gifEntry.localPath!),
-                                    width: double.infinity,
-                                    fit: BoxFit.fitWidth,
-                                    errorBuilder:
-                                        (context, error, stackTrace) =>
-                                            Container(
-                                              height: 150,
-                                              color: Colors.red[100],
-                                              child: const Icon(
-                                                Icons.error,
-                                                color: Colors.red,
-                                              ),
-                                            ),
-                                  )
-                                  : CachedNetworkImage(
-                                    imageUrl: gifEntry.mediaUrl,
-                                    cacheManager: MyCacheManager(),
-                                    placeholder:
-                                        (context, url) => Container(
-                                          height: 150,
-                                          color: Colors.grey[300],
-                                          child: const Center(
-                                            child: CircularProgressIndicator(),
-                                          ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            gifEntry.localPath != null &&
+                                    File(gifEntry.localPath!).existsSync()
+                                ? Image.file(
+                                  File(gifEntry.localPath!),
+                                  width: double.infinity,
+                                  fit: BoxFit.fitWidth,
+                                  errorBuilder:
+                                      (context, error, stackTrace) => Container(
+                                        height: 150,
+                                        color: Colors.red[100],
+                                        child: const Icon(
+                                          Icons.error,
+                                          color: Colors.red,
                                         ),
-                                    errorWidget:
-                                        (context, url, error) => Container(
-                                          height: 150,
-                                          color: Colors.red[100],
-                                          child: const Icon(
-                                            Icons.error,
-                                            color: Colors.red,
-                                          ),
+                                      ),
+                                )
+                                : CachedNetworkImage(
+                                  imageUrl: gifEntry.mediaUrl,
+                                  cacheManager: MyCacheManager(),
+                                  placeholder:
+                                      (context, url) => Container(
+                                        height: 150,
+                                        color: Colors.grey[300],
+                                        child: const Center(
+                                          child: CircularProgressIndicator(),
                                         ),
-                                    width: double.infinity,
-                                    fit: BoxFit.fitWidth,
-                                  ),
-                              const SizedBox(height: 8.0),
-                              Row(
+                                      ),
+                                  errorWidget:
+                                      (context, url, error) => Container(
+                                        height: 150,
+                                        color: Colors.red[100],
+                                        child: const Icon(
+                                          Icons.error,
+                                          color: Colors.red,
+                                        ),
+                                      ),
+                                  width: double.infinity,
+                                  fit: BoxFit.fitWidth,
+                                ),
+                            Padding(
+                              padding: const EdgeInsets.all(8.0),
+                              child: Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Expanded(
@@ -791,8 +789,8 @@ class _GifListScreenState extends State<GifListScreen> {
                                   ),
                                 ],
                               ),
-                            ],
-                          ),
+                            ),
+                          ],
                         ),
                       ),
                     );
