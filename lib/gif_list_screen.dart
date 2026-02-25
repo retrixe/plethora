@@ -314,6 +314,23 @@ class _GifListScreenState extends State<GifListScreen> {
       );
 
       if (outputPath != null) {
+        if (!mounted) return;
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (BuildContext context) {
+            return const AlertDialog(
+              content: Row(
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(width: 16.0),
+                  Text('Exporting GIFs...'),
+                ],
+              ),
+            );
+          },
+        );
+
         // Create archive
         final archive = Archive();
 
@@ -341,6 +358,7 @@ class _GifListScreenState extends State<GifListScreen> {
         await zipFile.writeAsBytes(ZipEncoder().encode(archive)!);
 
         if (!mounted) return;
+        Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Exported to $outputPath ($gifCount GIFs included)'),
@@ -349,6 +367,7 @@ class _GifListScreenState extends State<GifListScreen> {
         );
       } else {
         if (!mounted) return;
+        Navigator.pop(context);
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('Export canceled.')));
@@ -356,6 +375,7 @@ class _GifListScreenState extends State<GifListScreen> {
     } catch (e) {
       debugPrint('Error exporting favorites: $e');
       if (!mounted) return;
+      Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Failed to export favorites: $e'),
@@ -388,6 +408,23 @@ class _GifListScreenState extends State<GifListScreen> {
           return;
         }
 
+        if (!mounted) return;
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (BuildContext context) {
+            return const AlertDialog(
+              content: Row(
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(width: 16.0),
+                  Text('Importing GIFs...'),
+                ],
+              ),
+            );
+          },
+        );
+
         final filePath = selectedFile.path!;
         String jsonString = '';
         Map<String, List<int>> extractedGifs = {}; // fileName -> fileBytes
@@ -412,6 +449,7 @@ class _GifListScreenState extends State<GifListScreen> {
 
           if (jsonString.isEmpty) {
             if (!mounted) return;
+            Navigator.pop(context);
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
                 content: Text('No metadata.json found in ZIP file.'),
@@ -443,6 +481,7 @@ class _GifListScreenState extends State<GifListScreen> {
 
         if (importedFavorites.isEmpty) {
           if (!mounted) return;
+          Navigator.pop(context);
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('No valid favorites found in the file.'),
@@ -461,6 +500,7 @@ class _GifListScreenState extends State<GifListScreen> {
 
         if (newFavoritesToProcess.isEmpty) {
           if (!mounted) return;
+          Navigator.pop(context);
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text(
@@ -536,6 +576,7 @@ class _GifListScreenState extends State<GifListScreen> {
         _gifBox.addAll(finalImportedEntries);
 
         if (!mounted) return;
+        Navigator.pop(context);
         String message =
             'Successfully imported ${finalImportedEntries.length} new favorite(s). ';
         if (successfullyImported > 0) {
@@ -556,6 +597,7 @@ class _GifListScreenState extends State<GifListScreen> {
         );
       } else {
         if (!mounted) return;
+        Navigator.pop(context);
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('Import canceled.')));
@@ -563,6 +605,7 @@ class _GifListScreenState extends State<GifListScreen> {
     } catch (e) {
       debugPrint('Error importing favorites: $e');
       if (!mounted) return;
+      Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Failed to import favorites: $e'),
