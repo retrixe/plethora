@@ -20,24 +20,25 @@ import 'package:archive/archive_io.dart';
 class _ExportData {
   final String jsonString;
   final List<String> localPaths;
-  final String outputPath;
 
-  _ExportData({
-    required this.jsonString,
-    required this.localPaths,
-    required this.outputPath,
-  });
+  _ExportData({required this.jsonString, required this.localPaths});
 }
 
 class _ExportResult {
   final bool success;
+  final List<int>? zipBytes;
   final int gifCount;
   final String? error;
 
-  _ExportResult({required this.success, required this.gifCount, this.error});
+  _ExportResult({
+    required this.success,
+    this.zipBytes,
+    required this.gifCount,
+    this.error,
+  });
 }
 
-Future<_ExportResult> _performExportInBackground(_ExportData data) async {
+Future<_ExportResult> _createZipInBackground(_ExportData data) async {
   try {
     final archive = Archive();
 
@@ -62,11 +63,18 @@ Future<_ExportResult> _performExportInBackground(_ExportData data) async {
       }
     }
 
-    // Write ZIP file
-    final zipFile = File(data.outputPath);
-    await zipFile.writeAsBytes(ZipEncoder().encode(archive)!);
+    // Encode ZIP
+    final zipBytes = ZipEncoder().encode(archive);
 
-    return _ExportResult(success: true, gifCount: gifCount);
+    if (zipBytes == null) {
+      return _ExportResult(
+        success: false,
+        gifCount: 0,
+        error: 'Failed to create ZIP file',
+      );
+    }
+
+    return _ExportResult(success: true, zipBytes: zipBytes, gifCount: gifCount);
   } catch (e) {
     return _ExportResult(success: false, gifCount: 0, error: e.toString());
   }
@@ -358,36 +366,31 @@ class _GifListScreenState extends State<GifListScreen> {
         return;
       }
 
-      final List<Map<String, dynamic>> jsonList =
-          allFavorites.map((gifEntry) => gifEntry.toJson()).toList();
-      final String jsonString = jsonEncode(jsonList);
-
-      String? outputPath = await FilePicker.platform.saveFile(
-        dialogTitle: 'Export Favorite GIFs',
-        fileName: 'favorite_gifs_export.zip',
-        allowedExtensions: ['zip'],
-        type: FileType.custom,
-      );
-
-      if (outputPath != null) {
-        if (!mounted) return;
+      if (!mounted) return;
+      bool dialogShown = false;
+      try {
         showDialog(
           context: context,
           barrierDismissible: false,
           builder: (BuildContext context) {
+            dialogShown = true;
             return const AlertDialog(
               content: Row(
                 children: [
                   CircularProgressIndicator(),
                   SizedBox(width: 16.0),
-                  Text('Exporting GIFs...'),
+                  Text('Preparing export...'),
                 ],
               ),
             );
           },
         );
 
-        // Collect local paths for background task
+        final List<Map<String, dynamic>> jsonList =
+            allFavorites.map((gifEntry) => gifEntry.toJson()).toList();
+        final String jsonString = jsonEncode(jsonList);
+
+        // Collect local paths
         final localPaths = <String>[];
         for (final gifEntry in allFavorites) {
           if (gifEntry.localPath != null) {
@@ -395,51 +398,80 @@ class _GifListScreenState extends State<GifListScreen> {
           }
         }
 
-        // Run export in background isolate
+        // Create ZIP file in background isolate
         final exportData = _ExportData(
           jsonString: jsonString,
           localPaths: localPaths,
-          outputPath: outputPath,
         );
-        final result = await compute(_performExportInBackground, exportData);
+
+        final result = await compute(_createZipInBackground, exportData);
+
+        if (mounted && dialogShown) {
+          Navigator.of(context, rootNavigator: true).pop();
+          dialogShown = false;
+        }
 
         if (!mounted) return;
-        Navigator.pop(context);
 
-        if (result.success) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'Exported to $outputPath (${result.gifCount} GIFs included)',
-              ),
-              backgroundColor: Colors.green,
-            ),
-          );
-        } else {
+        if (!result.success || result.zipBytes == null) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('Export failed: ${result.error}'),
               backgroundColor: Colors.redAccent,
             ),
           );
+          return;
         }
-      } else {
+
+        // Save file with bytes (works on Android/iOS)
+        String? outputPath = await FilePicker.platform.saveFile(
+          dialogTitle: 'Export Favorite GIFs',
+          fileName: 'favorite_gifs_export.zip',
+          allowedExtensions: ['zip'],
+          type: FileType.custom,
+          bytes: Uint8List.fromList(result.zipBytes!),
+        );
+
         if (!mounted) return;
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Export canceled.')));
+
+        if (outputPath != null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Exported successfully (${result.gifCount} GIFs included)',
+              ),
+              backgroundColor: Colors.green,
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('Export canceled.')));
+        }
+      } catch (e) {
+        debugPrint('Error during export: $e');
+        if (mounted && dialogShown) {
+          try {
+            Navigator.of(context, rootNavigator: true).pop();
+          } catch (popError) {
+            debugPrint('Error dismissing dialog: $popError');
+          }
+        }
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Export error: $e'),
+              backgroundColor: Colors.redAccent,
+            ),
+          );
+        }
       }
     } catch (e) {
-      debugPrint('Error exporting favorites: $e');
+      debugPrint('Error in export favorites (outer): $e');
       if (!mounted) return;
-      try {
-        Navigator.pop(context);
-      } catch (_) {
-        // Dialog might not be open
-      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Failed to export favorites: $e'),
+          content: Text('Failed to export: $e'),
           backgroundColor: Colors.redAccent,
         ),
       );
@@ -470,206 +502,239 @@ class _GifListScreenState extends State<GifListScreen> {
         }
 
         if (!mounted) return;
-        showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (BuildContext context) {
-            return const AlertDialog(
-              content: Row(
-                children: [
-                  CircularProgressIndicator(),
-                  SizedBox(width: 16.0),
-                  Text('Importing GIFs...'),
-                ],
-              ),
-            );
-          },
-        );
+        bool dialogShown = false;
+        try {
+          showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (BuildContext context) {
+              dialogShown = true;
+              return const AlertDialog(
+                content: Row(
+                  children: [
+                    CircularProgressIndicator(),
+                    SizedBox(width: 16.0),
+                    Text('Importing GIFs...'),
+                  ],
+                ),
+              );
+            },
+          );
 
-        final filePath = selectedFile.path!;
-        String jsonString = '';
-        Map<String, List<int>> extractedGifs = {}; // fileName -> fileBytes
+          final filePath = selectedFile.path!;
+          String jsonString = '';
+          Map<String, List<int>> extractedGifs = {}; // fileName -> fileBytes
 
-        // Check if it's a ZIP file
-        if (filePath.endsWith('.zip')) {
-          final zipFile = File(filePath);
-          final zipBytes = await zipFile.readAsBytes();
-          final archive = ZipDecoder().decodeBytes(zipBytes);
+          // Check if it's a ZIP file
+          if (filePath.endsWith('.zip')) {
+            final zipFile = File(filePath);
+            final zipBytes = await zipFile.readAsBytes();
+            final archive = ZipDecoder().decodeBytes(zipBytes);
 
-          // Extract metadata.json and GIF files
-          for (final file in archive) {
-            if (file.name == 'metadata.json') {
-              jsonString = String.fromCharCodes(file.content as List<int>);
-            } else if (!file.isFile || file.name.startsWith('/')) {
-              continue;
-            } else {
-              // This is a GIF file
-              extractedGifs[file.name] = file.content as List<int>;
+            // Extract metadata.json and GIF files
+            for (final file in archive) {
+              if (file.name == 'metadata.json') {
+                jsonString = String.fromCharCodes(file.content as List<int>);
+              } else if (!file.isFile || file.name.startsWith('/')) {
+                continue;
+              } else {
+                // This is a GIF file
+                extractedGifs[file.name] = file.content as List<int>;
+              }
             }
+
+            if (jsonString.isEmpty) {
+              if (mounted && dialogShown) {
+                Navigator.of(context, rootNavigator: true).pop();
+              }
+              if (!mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('No metadata.json found in ZIP file.'),
+                  backgroundColor: Colors.redAccent,
+                ),
+              );
+              return;
+            }
+          } else {
+            // It's a JSON file
+            final file = File(filePath);
+            jsonString = await file.readAsString();
           }
 
-          if (jsonString.isEmpty) {
+          final List<dynamic> decodedJson = jsonDecode(jsonString);
+
+          final List<GifEntry> importedFavorites =
+              decodedJson
+                  .map((jsonItem) {
+                    try {
+                      return GifEntry.fromJson(
+                        jsonItem as Map<String, dynamic>,
+                      );
+                    } catch (e) {
+                      debugPrint('Error decoding JSON item: $jsonItem - $e');
+                      return null;
+                    }
+                  })
+                  .whereType<GifEntry>()
+                  .toList();
+
+          if (importedFavorites.isEmpty) {
+            if (mounted && dialogShown) {
+              Navigator.of(context, rootNavigator: true).pop();
+            }
             if (!mounted) return;
-            Navigator.pop(context);
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                content: Text('No metadata.json found in ZIP file.'),
-                backgroundColor: Colors.redAccent,
+                content: Text('No valid favorites found in the file.'),
+                backgroundColor: Colors.orangeAccent,
               ),
             );
             return;
           }
-        } else {
-          // It's a JSON file
-          final file = File(filePath);
-          jsonString = await file.readAsString();
-        }
 
-        final List<dynamic> decodedJson = jsonDecode(jsonString);
+          final existingUrls =
+              _gifBox.values.map((entry) => entry.originalUrl).toSet();
+          final List<GifEntry> newFavoritesToProcess =
+              importedFavorites.where((importedEntry) {
+                return !existingUrls.contains(importedEntry.originalUrl);
+              }).toList();
 
-        final List<GifEntry> importedFavorites =
-            decodedJson
-                .map((jsonItem) {
-                  try {
-                    return GifEntry.fromJson(jsonItem as Map<String, dynamic>);
-                  } catch (e) {
-                    debugPrint('Error decoding JSON item: $jsonItem - $e');
-                    return null;
-                  }
-                })
-                .whereType<GifEntry>()
-                .toList();
-
-        if (importedFavorites.isEmpty) {
-          if (!mounted) return;
-          Navigator.pop(context);
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('No valid favorites found in the file.'),
-              backgroundColor: Colors.orangeAccent,
-            ),
-          );
-          return;
-        }
-
-        final existingUrls =
-            _gifBox.values.map((entry) => entry.originalUrl).toSet();
-        final List<GifEntry> newFavoritesToProcess =
-            importedFavorites.where((importedEntry) {
-              return !existingUrls.contains(importedEntry.originalUrl);
-            }).toList();
-
-        if (newFavoritesToProcess.isEmpty) {
-          if (!mounted) return;
-          Navigator.pop(context);
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'No new favorites to add (duplicates found or no valid entries).',
-              ),
-              backgroundColor: Colors.orangeAccent,
-            ),
-          );
-          return;
-        }
-
-        List<GifEntry> finalImportedEntries = [];
-        int successfullyImported = 0;
-        int failedImports = 0;
-
-        for (final entry in newFavoritesToProcess) {
-          String? currentLocalPath;
-
-          // Check if the GIF was exported with the ZIP
-          if (entry.localPath != null) {
-            final fileName = entry.localPath!.split('/').last;
-            if (extractedGifs.containsKey(fileName)) {
-              // Copy the extracted GIF to permanent storage
-              try {
-                final localFile = File(
-                  '${_permanentGifStorageDirectory.path}/$fileName',
-                );
-                await localFile.writeAsBytes(extractedGifs[fileName]!);
-                currentLocalPath = localFile.path;
-                debugPrint('Imported GIF from ZIP: $currentLocalPath');
-                successfullyImported++;
-              } catch (e) {
-                debugPrint('Error importing GIF file: $e');
-                failedImports++;
-              }
-            } else {
-              // GIF not in ZIP, try to download
-              try {
-                final response = await http.get(Uri.parse(entry.mediaUrl));
-                if (response.statusCode == 200) {
-                  final fileExtension =
-                      entry.mediaUrl.split('.').last.split('?').first;
-                  final uniqueFileName = '${_uuid.v4()}.$fileExtension';
-                  final localFile = File(
-                    '${_permanentGifStorageDirectory.path}/$uniqueFileName',
-                  );
-                  await localFile.writeAsBytes(response.bodyBytes);
-                  currentLocalPath = localFile.path;
-                  debugPrint('Downloaded GIF: $currentLocalPath');
-                  successfullyImported++;
-                } else {
-                  debugPrint(
-                    'Failed to download ${entry.mediaUrl}: Status ${response.statusCode}',
-                  );
-                  failedImports++;
-                }
-              } catch (e) {
-                debugPrint('Error downloading GIF: $e');
-                failedImports++;
-              }
+          if (newFavoritesToProcess.isEmpty) {
+            if (mounted && dialogShown) {
+              Navigator.of(context, rootNavigator: true).pop();
             }
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'No new favorites to add (duplicates found or no valid entries).',
+                ),
+                backgroundColor: Colors.orangeAccent,
+              ),
+            );
+            return;
           }
 
-          finalImportedEntries.add(
-            GifEntry(
-              originalUrl: entry.originalUrl,
-              mediaUrl: entry.mediaUrl,
-              localPath: currentLocalPath,
+          List<GifEntry> finalImportedEntries = [];
+          int successfullyImported = 0;
+          int failedImports = 0;
+
+          for (final entry in newFavoritesToProcess) {
+            String? currentLocalPath;
+
+            // Check if the GIF was exported with the ZIP
+            if (entry.localPath != null) {
+              final fileName = entry.localPath!.split('/').last;
+              if (extractedGifs.containsKey(fileName)) {
+                // Copy the extracted GIF to permanent storage
+                try {
+                  final localFile = File(
+                    '${_permanentGifStorageDirectory.path}/$fileName',
+                  );
+                  await localFile.writeAsBytes(extractedGifs[fileName]!);
+                  currentLocalPath = localFile.path;
+                  debugPrint('Imported GIF from ZIP: $currentLocalPath');
+                  successfullyImported++;
+                } catch (e) {
+                  debugPrint('Error importing GIF file: $e');
+                  failedImports++;
+                }
+              } else {
+                // GIF not in ZIP, try to download
+                try {
+                  final response = await http.get(Uri.parse(entry.mediaUrl));
+                  if (response.statusCode == 200) {
+                    final fileExtension =
+                        entry.mediaUrl.split('.').last.split('?').first;
+                    final uniqueFileName = '${_uuid.v4()}.$fileExtension';
+                    final localFile = File(
+                      '${_permanentGifStorageDirectory.path}/$uniqueFileName',
+                    );
+                    await localFile.writeAsBytes(response.bodyBytes);
+                    currentLocalPath = localFile.path;
+                    debugPrint('Downloaded GIF: $currentLocalPath');
+                    successfullyImported++;
+                  } else {
+                    debugPrint(
+                      'Failed to download ${entry.mediaUrl}: Status ${response.statusCode}',
+                    );
+                    failedImports++;
+                  }
+                } catch (e) {
+                  debugPrint('Error downloading GIF: $e');
+                  failedImports++;
+                }
+              }
+            }
+
+            finalImportedEntries.add(
+              GifEntry(
+                originalUrl: entry.originalUrl,
+                mediaUrl: entry.mediaUrl,
+                localPath: currentLocalPath,
+              ),
+            );
+          }
+
+          _gifBox.addAll(finalImportedEntries);
+
+          if (mounted && dialogShown) {
+            Navigator.of(context, rootNavigator: true).pop();
+          }
+          if (!mounted) return;
+
+          String message =
+              'Successfully imported ${finalImportedEntries.length} new favorite(s). ';
+          if (successfullyImported > 0) {
+            message += '$successfullyImported GIF(s) were imported.';
+          }
+          if (failedImports > 0) {
+            message += '$failedImports GIF(s) failed to import.';
+          }
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(message),
+              backgroundColor:
+                  (failedImports > 0) ? Colors.orange : Colors.green,
+              duration: Duration(
+                seconds:
+                    (successfullyImported > 0 || failedImports > 0) ? 5 : 3,
+              ),
             ),
           );
+        } catch (e) {
+          debugPrint('Error during import: $e');
+          if (mounted && dialogShown) {
+            try {
+              Navigator.of(context, rootNavigator: true).pop();
+            } catch (popError) {
+              debugPrint('Error dismissing dialog: $popError');
+            }
+          }
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Import error: $e'),
+                backgroundColor: Colors.redAccent,
+              ),
+            );
+          }
         }
-
-        _gifBox.addAll(finalImportedEntries);
-
-        if (!mounted) return;
-        Navigator.pop(context);
-        String message =
-            'Successfully imported ${finalImportedEntries.length} new favorite(s). ';
-        if (successfullyImported > 0) {
-          message += '$successfullyImported GIF(s) were imported.';
-        }
-        if (failedImports > 0) {
-          message += '$failedImports GIF(s) failed to import.';
-        }
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(message),
-            backgroundColor: (failedImports > 0) ? Colors.orange : Colors.green,
-            duration: Duration(
-              seconds: (successfullyImported > 0 || failedImports > 0) ? 5 : 3,
-            ),
-          ),
-        );
       } else {
+        // Import was cancelled - no dialog to dismiss
         if (!mounted) return;
-        Navigator.pop(context);
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('Import canceled.')));
       }
     } catch (e) {
-      debugPrint('Error importing favorites: $e');
+      debugPrint('Error in import favorites (file picker): $e');
       if (!mounted) return;
-      Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Failed to import favorites: $e'),
+          content: Text('Failed to start import: $e'),
           backgroundColor: Colors.redAccent,
         ),
       );
