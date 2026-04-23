@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter_file_dialog/flutter_file_dialog.dart';
 import 'gif_box.dart';
 import 'tenor_scraper.dart';
 import 'giphy_scraper.dart';
@@ -20,19 +21,24 @@ import 'package:archive/archive_io.dart';
 class _ExportData {
   final String jsonString;
   final List<String> localPaths;
+  final String outputZipPath;
 
-  _ExportData({required this.jsonString, required this.localPaths});
+  _ExportData({
+    required this.jsonString,
+    required this.localPaths,
+    required this.outputZipPath,
+  });
 }
 
 class _ExportResult {
   final bool success;
-  final List<int>? zipBytes;
+  final String? zipPath;
   final int gifCount;
   final String? error;
 
   _ExportResult({
     required this.success,
-    this.zipBytes,
+    this.zipPath,
     required this.gifCount,
     this.error,
   });
@@ -40,15 +46,13 @@ class _ExportResult {
 
 Future<_ExportResult> _createZipInBackground(_ExportData data) async {
   try {
-    final archive = Archive();
+    final encoder = ZipFileEncoder();
+    encoder.create(data.outputZipPath);
 
-    // Add JSON metadata file
-    archive.addFile(
-      ArchiveFile(
-        'metadata.json',
-        data.jsonString.length,
-        data.jsonString.codeUnits,
-      ),
+    // Metadata is small, so add it directly without creating a temp file.
+    final metadataBytes = utf8.encode(data.jsonString);
+    encoder.addArchiveFile(
+      ArchiveFile('metadata.json', metadataBytes.length, metadataBytes),
     );
 
     // Add local GIF files
@@ -56,17 +60,15 @@ Future<_ExportResult> _createZipInBackground(_ExportData data) async {
     for (final localPath in data.localPaths) {
       final gifFile = File(localPath);
       if (await gifFile.exists()) {
-        final bytes = await gifFile.readAsBytes();
         final fileName = localPath.split('/').last;
-        archive.addFile(ArchiveFile(fileName, bytes.length, bytes));
+        encoder.addFile(gifFile, fileName);
         gifCount++;
       }
     }
 
-    // Encode ZIP
-    final zipBytes = ZipEncoder().encode(archive);
+    encoder.close();
 
-    if (zipBytes == null) {
+    if (!await File(data.outputZipPath).exists()) {
       return _ExportResult(
         success: false,
         gifCount: 0,
@@ -74,7 +76,11 @@ Future<_ExportResult> _createZipInBackground(_ExportData data) async {
       );
     }
 
-    return _ExportResult(success: true, zipBytes: zipBytes, gifCount: gifCount);
+    return _ExportResult(
+      success: true,
+      zipPath: data.outputZipPath,
+      gifCount: gifCount,
+    );
   } catch (e) {
     return _ExportResult(success: false, gifCount: 0, error: e.toString());
   }
@@ -390,6 +396,10 @@ class _GifListScreenState extends State<GifListScreen> {
             allFavorites.map((gifEntry) => gifEntry.toJson()).toList();
         final String jsonString = jsonEncode(jsonList);
 
+        final tempDir = await getTemporaryDirectory();
+        final tempZipPath =
+            '${tempDir.path}/favorite_gifs_export_${DateTime.now().millisecondsSinceEpoch}.zip';
+
         // Collect local paths
         final localPaths = <String>[];
         for (final gifEntry in allFavorites) {
@@ -402,6 +412,7 @@ class _GifListScreenState extends State<GifListScreen> {
         final exportData = _ExportData(
           jsonString: jsonString,
           localPaths: localPaths,
+          outputZipPath: tempZipPath,
         );
 
         final result = await compute(_createZipInBackground, exportData);
@@ -413,7 +424,7 @@ class _GifListScreenState extends State<GifListScreen> {
 
         if (!mounted) return;
 
-        if (!result.success || result.zipBytes == null) {
+        if (!result.success || result.zipPath == null) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('Export failed: ${result.error}'),
@@ -423,18 +434,55 @@ class _GifListScreenState extends State<GifListScreen> {
           return;
         }
 
-        // Save file with bytes (works on Android/iOS)
-        String? outputPath = await FilePicker.platform.saveFile(
-          dialogTitle: 'Export Favorite GIFs',
-          fileName: 'favorite_gifs_export.zip',
-          allowedExtensions: ['zip'],
-          type: FileType.custom,
-          bytes: Uint8List.fromList(result.zipBytes!),
-        );
+        final bool isMobile = Platform.isAndroid || Platform.isIOS;
+        String? outputPath;
+        if (isMobile) {
+          // Save by source file path on mobile to avoid reading huge ZIPs into memory.
+          outputPath = await FlutterFileDialog.saveFile(
+            params: SaveFileDialogParams(
+              sourceFilePath: result.zipPath!,
+              fileName: 'favorite_gifs_export.zip',
+              mimeTypesFilter: ['application/zip'],
+            ),
+          );
+        } else {
+          // Desktop flow: choose destination path first, then copy the prepared ZIP.
+          outputPath = await FilePicker.platform.saveFile(
+            dialogTitle: 'Export Favorite GIFs',
+            fileName: 'favorite_gifs_export.zip',
+            allowedExtensions: ['zip'],
+            type: FileType.custom,
+          );
+        }
 
         if (!mounted) return;
 
+        var tempZipMoved = false;
         if (outputPath != null) {
+          if (!isMobile) {
+            var finalOutputPath = outputPath;
+            if (!finalOutputPath.toLowerCase().endsWith('.zip')) {
+              finalOutputPath = '$finalOutputPath.zip';
+            }
+
+            final sourceFile = File(result.zipPath!);
+            final destinationFile = File(finalOutputPath);
+            if (destinationFile.path != sourceFile.path &&
+                await destinationFile.exists()) {
+              await destinationFile.delete();
+            }
+            if (destinationFile.path != sourceFile.path) {
+              try {
+                await sourceFile.rename(finalOutputPath);
+                tempZipMoved = true;
+              } catch (_) {
+                await sourceFile.copy(finalOutputPath);
+              }
+            }
+          }
+
+          if (!mounted) return;
+
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
@@ -447,6 +495,14 @@ class _GifListScreenState extends State<GifListScreen> {
           ScaffoldMessenger.of(
             context,
           ).showSnackBar(const SnackBar(content: Text('Export canceled.')));
+        }
+
+        if (!tempZipMoved) {
+          try {
+            await File(result.zipPath!).delete();
+          } catch (e) {
+            debugPrint('Unable to delete temporary export ZIP: $e');
+          }
         }
       } catch (e) {
         debugPrint('Error during export: $e');
