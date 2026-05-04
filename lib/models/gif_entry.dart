@@ -13,7 +13,19 @@ class GifEntry extends HiveObject {
   @HiveField(2) // Add this new field for local path
   String? localPath; // Make it nullable as it might not always exist
 
-  GifEntry({required this.originalUrl, required this.mediaUrl, this.localPath});
+  @HiveField(3)
+  int? width;
+
+  @HiveField(4)
+  int? height;
+
+  GifEntry({
+    required this.originalUrl,
+    required this.mediaUrl,
+    this.localPath,
+    this.width,
+    this.height,
+  });
 
   // Convert GifEntry object to a Map (for JSON encoding)
   Map<String, dynamic> toJson() {
@@ -21,6 +33,8 @@ class GifEntry extends HiveObject {
       'originalUrl': originalUrl,
       'mediaUrl': mediaUrl,
       'localPath': localPath, // Include localPath in JSON
+      'width': width,
+      'height': height,
     };
   }
 
@@ -30,6 +44,8 @@ class GifEntry extends HiveObject {
       originalUrl: json['originalUrl'] as String,
       mediaUrl: json['mediaUrl'] as String,
       localPath: json['localPath'] as String?, // Read localPath from JSON
+      width: (json['width'] as num?)?.toInt(),
+      height: (json['height'] as num?)?.toInt(),
     );
   }
 }

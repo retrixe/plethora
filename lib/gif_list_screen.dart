@@ -10,6 +10,7 @@ import 'giphy_scraper.dart';
 import 'models/gif_entry.dart';
 import 'cache/my_cache_manager.dart';
 import 'dart:convert';
+import 'dart:ui' as ui;
 import 'package:file_picker/file_picker.dart';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
@@ -249,6 +250,17 @@ class _GifListScreenState extends State<GifListScreen> {
     try {
       final response = await http.get(Uri.parse(mediaUrl));
       if (response.statusCode == 200) {
+        // Attempt to read image dimensions from bytes to avoid layout shift
+        int? imgWidth;
+        int? imgHeight;
+        try {
+          final dims = await _getImageDimensionsFromBytes(response.bodyBytes);
+          imgWidth = dims[0];
+          imgHeight = dims[1];
+        } catch (e) {
+          debugPrint('Could not decode image dimensions: $e');
+        }
+
         final fileExtension = mediaUrl.split('.').last.split('?').first;
         final uniqueFileName = '${_uuid.v4()}.$fileExtension';
         final localFile = File(
@@ -258,6 +270,20 @@ class _GifListScreenState extends State<GifListScreen> {
         await localFile.writeAsBytes(response.bodyBytes);
         localPath = localFile.path;
         debugPrint('GIF saved permanently to: $localPath');
+
+        final gifEntry = GifEntry(
+          originalUrl: originalUrl,
+          mediaUrl: mediaUrl,
+          localPath: localPath,
+          width: imgWidth,
+          height: imgHeight,
+        );
+        _gifBox.add(gifEntry);
+        _urlController.clear();
+        setState(() {
+          _isProcessingUrl = false;
+        });
+        return;
       } else {
         debugPrint(
           'Failed to download GIF for permanent storage: ${response.statusCode}',
@@ -285,6 +311,7 @@ class _GifListScreenState extends State<GifListScreen> {
       );
     }
 
+    // If we reach here, we didn't already add the entry above (e.g., download failed).
     final gifEntry = GifEntry(
       originalUrl: originalUrl,
       mediaUrl: mediaUrl,
@@ -678,6 +705,8 @@ class _GifListScreenState extends State<GifListScreen> {
 
           for (final entry in newFavoritesToProcess) {
             String? currentLocalPath;
+            int? imgWidth = entry.width;
+            int? imgHeight = entry.height;
 
             // Check if the GIF was exported with the ZIP
             if (entry.localPath != null) {
@@ -685,11 +714,26 @@ class _GifListScreenState extends State<GifListScreen> {
               if (extractedGifs.containsKey(fileName)) {
                 // Copy the extracted GIF to permanent storage
                 try {
+                  final fileBytes = extractedGifs[fileName]!;
                   final localFile = File(
                     '${_permanentGifStorageDirectory.path}/$fileName',
                   );
-                  await localFile.writeAsBytes(extractedGifs[fileName]!);
+                  await localFile.writeAsBytes(fileBytes);
                   currentLocalPath = localFile.path;
+                  // Only decode dimensions if they weren't present in metadata
+                  if (imgWidth == null || imgHeight == null) {
+                    try {
+                      final dims = await _getImageDimensionsFromBytes(
+                        Uint8List.fromList(fileBytes),
+                      );
+                      imgWidth = dims[0];
+                      imgHeight = dims[1];
+                    } catch (e) {
+                      debugPrint(
+                        'Failed to decode imported GIF dimensions: $e',
+                      );
+                    }
+                  }
                   debugPrint('Imported GIF from ZIP: $currentLocalPath');
                   successfullyImported++;
                 } catch (e) {
@@ -709,6 +753,18 @@ class _GifListScreenState extends State<GifListScreen> {
                     );
                     await localFile.writeAsBytes(response.bodyBytes);
                     currentLocalPath = localFile.path;
+                    // For downloaded images, always attempt to decode dimensions
+                    try {
+                      final dims = await _getImageDimensionsFromBytes(
+                        response.bodyBytes,
+                      );
+                      imgWidth = dims[0];
+                      imgHeight = dims[1];
+                    } catch (e) {
+                      debugPrint(
+                        'Failed to decode downloaded GIF dimensions: $e',
+                      );
+                    }
                     debugPrint('Downloaded GIF: $currentLocalPath');
                     successfullyImported++;
                   } else {
@@ -729,6 +785,8 @@ class _GifListScreenState extends State<GifListScreen> {
                 originalUrl: entry.originalUrl,
                 mediaUrl: entry.mediaUrl,
                 localPath: currentLocalPath,
+                width: imgWidth,
+                height: imgHeight,
               ),
             );
           }
@@ -795,6 +853,14 @@ class _GifListScreenState extends State<GifListScreen> {
         ),
       );
     }
+  }
+
+  // Decode image bytes to determine intrinsic width/height to avoid layout shifts.
+  Future<List<int>> _getImageDimensionsFromBytes(Uint8List bytes) async {
+    final codec = await ui.instantiateImageCodec(bytes);
+    final frame = await codec.getNextFrame();
+    final image = frame.image;
+    return [image.width, image.height];
   }
 
   // New helper method to get filtered GIF list
@@ -979,45 +1045,96 @@ class _GifListScreenState extends State<GifListScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            gifEntry.localPath != null &&
-                                    File(gifEntry.localPath!).existsSync()
-                                ? Image.file(
-                                  File(gifEntry.localPath!),
-                                  width: double.infinity,
-                                  fit: BoxFit.fitWidth,
-                                  errorBuilder:
-                                      (context, error, stackTrace) => Container(
-                                        height: 150,
-                                        color: Colors.red[100],
-                                        child: const Icon(
-                                          Icons.error,
-                                          color: Colors.red,
+                            // Use stored dimensions to reserve space and avoid layout shift.
+                            if (gifEntry.width != null &&
+                                gifEntry.height != null)
+                              AspectRatio(
+                                aspectRatio: gifEntry.width! / gifEntry.height!,
+                                child:
+                                    gifEntry.localPath != null &&
+                                            File(
+                                              gifEntry.localPath!,
+                                            ).existsSync()
+                                        ? Image.file(
+                                          File(gifEntry.localPath!),
+                                          width: double.infinity,
+                                          fit: BoxFit.cover,
+                                          errorBuilder:
+                                              (context, error, stackTrace) =>
+                                                  Container(
+                                                    color: Colors.red[100],
+                                                    child: const Icon(
+                                                      Icons.error,
+                                                      color: Colors.red,
+                                                    ),
+                                                  ),
+                                        )
+                                        : CachedNetworkImage(
+                                          imageUrl: gifEntry.mediaUrl,
+                                          cacheManager: MyCacheManager(),
+                                          placeholder:
+                                              (context, url) => Container(
+                                                color: Colors.grey[300],
+                                                child: const Center(
+                                                  child:
+                                                      CircularProgressIndicator(),
+                                                ),
+                                              ),
+                                          errorWidget:
+                                              (context, url, error) =>
+                                                  Container(
+                                                    color: Colors.red[100],
+                                                    child: const Icon(
+                                                      Icons.error,
+                                                      color: Colors.red,
+                                                    ),
+                                                  ),
+                                          width: double.infinity,
+                                          fit: BoxFit.cover,
                                         ),
-                                      ),
-                                )
-                                : CachedNetworkImage(
-                                  imageUrl: gifEntry.mediaUrl,
-                                  cacheManager: MyCacheManager(),
-                                  placeholder:
-                                      (context, url) => Container(
-                                        height: 150,
-                                        color: Colors.grey[300],
-                                        child: const Center(
-                                          child: CircularProgressIndicator(),
+                              )
+                            else
+                              // Fallback fixed-height placeholder when dimensions unknown
+                              gifEntry.localPath != null &&
+                                      File(gifEntry.localPath!).existsSync()
+                                  ? Image.file(
+                                    File(gifEntry.localPath!),
+                                    width: double.infinity,
+                                    fit: BoxFit.fitWidth,
+                                    errorBuilder:
+                                        (context, error, stackTrace) =>
+                                            Container(
+                                              height: 150,
+                                              color: Colors.red[100],
+                                              child: const Icon(
+                                                Icons.error,
+                                                color: Colors.red,
+                                              ),
+                                            ),
+                                  )
+                                  : CachedNetworkImage(
+                                    imageUrl: gifEntry.mediaUrl,
+                                    cacheManager: MyCacheManager(),
+                                    placeholder:
+                                        (context, url) => Container(
+                                          height: 150,
+                                          color: Colors.grey[300],
+                                          child: const Center(
+                                            child: CircularProgressIndicator(),
+                                          ),
                                         ),
-                                      ),
-                                  errorWidget:
-                                      (context, url, error) => Container(
-                                        height: 150,
-                                        color: Colors.red[100],
-                                        child: const Icon(
-                                          Icons.error,
-                                          color: Colors.red,
+                                    errorWidget:
+                                        (context, url, error) => Container(
+                                          height: 150,
+                                          color: Colors.red[100],
+                                          child: const Icon(
+                                            Icons.error,
+                                            color: Colors.red,
+                                          ),
                                         ),
-                                      ),
-                                  width: double.infinity,
-                                  fit: BoxFit.fitWidth,
-                                ),
+                                    width: double.infinity,
+                                    fit: BoxFit.fitWidth,
+                                  ),
                             Padding(
                               padding: const EdgeInsets.all(8.0),
                               child: Row(
