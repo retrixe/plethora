@@ -7,6 +7,7 @@ import 'package:flutter_file_dialog/flutter_file_dialog.dart';
 import 'gif_box.dart';
 import 'tenor_scraper.dart';
 import 'giphy_scraper.dart';
+import 'klipy_scraper.dart';
 import 'models/gif_entry.dart';
 import 'cache/my_cache_manager.dart';
 import 'dart:convert';
@@ -196,6 +197,41 @@ class _GifListScreenState extends State<GifListScreen> {
           const SnackBar(
             content: Text(
               'Failed to parse GIF/media from Giphy URL. Cannot add.',
+            ),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+        setState(() {
+          _isProcessingUrl = false;
+        });
+        return;
+      }
+    } else if (originalUrl.contains('klipy.com') ||
+        originalUrl.contains('static.klipy.com')) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Attempting to load Klipy URL...'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      final scrapedUrl = await KlipyScraper.scrapeGifUrl(originalUrl);
+
+      if (!mounted) return;
+
+      if (scrapedUrl != null) {
+        mediaUrl = scrapedUrl;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Klipy URL resolved successfully! Adding GIF.'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Failed to resolve Klipy GIF URL. Please paste a direct Klipy media URL.',
             ),
             backgroundColor: Colors.redAccent,
           ),
@@ -955,7 +991,7 @@ class _GifListScreenState extends State<GifListScreen> {
                   child: TextField(
                     controller: _urlController,
                     decoration: InputDecoration(
-                      hintText: 'Enter URL (GIF, Tenor, Giphy, Discord)',
+                      hintText: 'Enter URL (GIF, Tenor, Giphy, Klipy, Discord)',
                       border: const OutlineInputBorder(),
                       contentPadding: const EdgeInsets.symmetric(
                         horizontal: 10.0,
