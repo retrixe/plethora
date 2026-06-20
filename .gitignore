@@ -1,3 +1,7 @@
+# Local configuration files with API keys
+tool/klipy.env
+lib/klipy_config.g.dart
+
 # Miscellaneous
 *.class
 *.log

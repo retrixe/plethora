@@ -1,18 +1,14 @@
 import 'package:flutter/foundation.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'klipy_config.dart';
 
 class KlipyScraper {
-  static const String _appKey = String.fromEnvironment(
-    'KLIPY_APP_KEY',
-    defaultValue: '',
-  );
-
   static Future<String?> scrapeGifUrl(String klipyUrl) async {
     try {
       final uri = Uri.parse(klipyUrl);
       final host = uri.host.toLowerCase();
-      final apiKey = _appKey;
+      final apiKey = KlipyConfig.appKey;
 
       if (host == 'static.klipy.com') {
         debugPrint('KlipyScraper: Using direct static media URL: $klipyUrl');
